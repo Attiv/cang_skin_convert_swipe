@@ -1,0 +1,528 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hamster 键盘皮肤修改工具</title>
+    <style>
+        body {
+            font-family: 'PingFang SC', 'Helvetica Neue', Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            line-height: 1.6;
+            color: #333;
+        }
+        h1 {
+            text-align: center;
+            color: #1a73e8;
+        }
+        .container {
+            background-color: #f5f5f5;
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        .file-upload {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        .file-upload label {
+            font-weight: bold;
+        }
+        .button {
+            background-color: #1a73e8;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            transition: background-color 0.3s;
+        }
+        .button:hover {
+            background-color: #1558b7;
+        }
+        .button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+        #status {
+            margin-top: 20px;
+            padding: 10px;
+            border-radius: 5px;
+        }
+        .success {
+            background-color: #d4edda;
+            color: #155724;
+        }
+        .error {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+        .progress {
+            background-color: #e2f3f5;
+            color: #0c5460;
+        }
+        .hidden {
+            display: none;
+        }
+        #log {
+            max-height: 200px;
+            overflow-y: auto;
+            margin-top: 10px;
+            padding: 10px;
+            background-color: #f8f9fa;
+            border-radius: 5px;
+            font-family: monospace;
+            font-size: 14px;
+            line-height: 1.4;
+        }
+    </style>
+</head>
+<body>
+    <h1>Hamster 键盘皮肤修改工具</h1>
+    
+    <div class="container">
+        <h2>使用说明</h2>
+        <p>此工具可以将一个皮肤的上滑/下滑动作（swipeUpAction/swipeDownAction）和相关样式复制到另一个皮肤。</p>
+        <ol>
+            <li>上传源皮肤文件（.hskin，即包含你想要复制的上滑/下滑设置的皮肤）</li>
+            <li>上传目标皮肤文件（.hskin，即要被修改的皮肤）</li>
+            <li>点击"开始处理"按钮</li>
+            <li>处理完成后，将自动下载修改后的皮肤文件</li>
+        </ol>
+        <p><strong>注意：</strong> 工具将同时处理 light 和 dark 目录下的 pinyin_26_portrait.yaml 和 pinyin_26_landscape.yaml 文件。</p>
+    </div>
+
+    <div class="container">
+        <div class="file-upload">
+            <label for="source-file">源皮肤文件（含你需要的上滑/下滑设置）:</label>
+            <input type="file" id="source-file" accept=".hskin">
+        </div>
+        
+        <div class="file-upload">
+            <label for="target-file">目标皮肤文件（需要被修改的皮肤）:</label>
+            <input type="file" id="target-file" accept=".hskin">
+        </div>
+        
+        <button id="process-button" class="button" disabled>开始处理</button>
+        
+        <div id="status" class="hidden"></div>
+        <div id="log" class="hidden"></div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script>
+        const sourceFileInput = document.getElementById('source-file');
+        const targetFileInput = document.getElementById('target-file');
+        const processButton = document.getElementById('process-button');
+        const statusDiv = document.getElementById('status');
+        const logDiv = document.getElementById('log');
+        
+        let sourceFile = null;
+        let targetFile = null;
+        
+        // 监听文件选择变化
+        sourceFileInput.addEventListener('change', (e) => {
+            sourceFile = e.target.files[0];
+            checkFilesSelected();
+        });
+        
+        targetFileInput.addEventListener('change', (e) => {
+            targetFile = e.target.files[0];
+            checkFilesSelected();
+        });
+        
+        // 检查是否两个文件都已选择
+        function checkFilesSelected() {
+            if (sourceFile && targetFile) {
+                processButton.disabled = false;
+            } else {
+                processButton.disabled = true;
+            }
+        }
+        
+        // 添加日志
+        function logMessage(message) {
+            logDiv.classList.remove('hidden');
+            const logLine = document.createElement('div');
+            logLine.textContent = message;
+            logDiv.appendChild(logLine);
+            logDiv.scrollTop = logDiv.scrollHeight;
+        }
+        
+        // 处理按钮点击事件
+        processButton.addEventListener('click', async () => {
+            try {
+                statusDiv.className = 'progress';
+                statusDiv.textContent = '正在处理文件...';
+                statusDiv.classList.remove('hidden');
+                logDiv.innerHTML = '';
+                
+                // 解压两个hskin文件
+                const sourceZip = await JSZip.loadAsync(sourceFile);
+                const targetZip = await JSZip.loadAsync(targetFile);
+                
+                statusDiv.textContent = '正在分析文件...';
+                
+                // 要处理的文件路径模式
+                const filePatterns = [
+                    /light\/pinyin_26_portrait\.yaml$/i,
+					/light\/pinyin_26_landscape\.yaml$/i,
+					/light\/alphabetic_26_portrait\.yaml$/i,
+					/light\/alphabetic_26_landscape\.yaml$/i,
+                    /dark\/pinyin_26_portrait\.yaml$/i,
+                    /dark\/pinyin_26_landscape\.yaml$/i,
+					/dark\/alphabetic_26_portrait\.yaml$/i,
+					/dark\/alphabetic_26_landscape\.yaml$/i,
+                ];
+                
+                // 查找匹配的文件路径
+                const sourceYamlFiles = {};
+                const targetYamlFiles = {};
+                
+                // 遍历源皮肤文件查找YAML
+                for (const filePath in sourceZip.files) {
+                    for (let i = 0; i < filePatterns.length; i++) {
+                        if (filePatterns[i].test(filePath)) {
+                            sourceYamlFiles[i] = {
+                                path: filePath,
+                                content: await sourceZip.files[filePath].async('string')
+                            };
+                            logMessage(`找到源皮肤文件: ${filePath}`);
+                            break;
+                        }
+                    }
+                }
+                
+                // 遍历目标皮肤文件查找YAML
+                for (const filePath in targetZip.files) {
+                    for (let i = 0; i < filePatterns.length; i++) {
+                        if (filePatterns[i].test(filePath)) {
+                            targetYamlFiles[i] = {
+                                path: filePath,
+                                content: await targetZip.files[filePath].async('string')
+                            };
+                            logMessage(`找到目标皮肤文件: ${filePath}`);
+                            break;
+                        }
+                    }
+                }
+                
+                // 检查是否找到了文件
+                if (Object.keys(sourceYamlFiles).length === 0) {
+                    throw new Error('在源皮肤中找不到任何匹配的YAML文件');
+                }
+                
+                if (Object.keys(targetYamlFiles).length === 0) {
+                    throw new Error('在目标皮肤中找不到任何匹配的YAML文件');
+                }
+                
+                statusDiv.textContent = '正在提取按键设置...';
+                
+                // 处理每一对文件
+                for (const [index, sourceYamlFile] of Object.entries(sourceYamlFiles)) {
+                    if (!targetYamlFiles[index]) {
+                        logMessage(`警告: 目标皮肤中没有与 ${sourceYamlFile.path} 匹配的文件`);
+                        continue;
+                    }
+                    
+                    logMessage(`处理文件: ${targetYamlFiles[index].path}`);
+                    
+                    // 提取源皮肤中的swipeUpAction和swipeDownAction及样式
+                    const buttonSettings = extractButtonSettings(sourceYamlFile.content);
+                    
+                    // 检查目标皮肤中是否有相应的样式引用
+                    const styleReferences = checkStyleReferences(targetYamlFiles[index].content);
+                    
+                    // 更新目标皮肤
+                    const updatedYaml = updateTargetYaml(
+                        targetYamlFiles[index].content, 
+                        buttonSettings, 
+                        styleReferences
+                    );
+                    
+                    // 将更新后的YAML添加回目标zip
+                    targetZip.file(targetYamlFiles[index].path, updatedYaml);
+                    
+                    logMessage(`完成 ${targetYamlFiles[index].path} 的更新`);
+                }
+                
+                statusDiv.textContent = '正在生成新的皮肤文件...';
+                
+                // 生成新的hskin文件
+                const newHskinBlob = await targetZip.generateAsync({type: 'blob'});
+                
+                // 创建下载链接
+                const downloadLink = document.createElement('a');
+                downloadLink.href = URL.createObjectURL(newHskinBlob);
+                downloadLink.download = 'modified_' + targetFile.name;
+                
+                // 触发下载
+                downloadLink.click();
+                
+                statusDiv.className = 'success';
+                statusDiv.textContent = '处理完成！新的皮肤文件已下载。';
+                
+            } catch (error) {
+                console.error(error);
+                statusDiv.className = 'error';
+                statusDiv.textContent = '处理出错: ' + error.message;
+                logMessage(`错误: ${error.message}`);
+            }
+        });
+        
+        // 提取源皮肤中的按键设置
+        function extractButtonSettings(yaml) {
+            const buttonSettings = {};
+            const buttonNames = [
+                'qButton', 'wButton', 'eButton', 'rButton', 'tButton', 'yButton', 
+                'uButton', 'iButton', 'oButton', 'pButton', 'aButton', 'sButton', 
+                'dButton', 'fButton', 'gButton', 'hButton', 'jButton', 'kButton', 
+                'lButton', 'zButton', 'xButton', 'cButton', 'vButton', 'bButton', 
+                'nButton', 'mButton', 'backspaceButton', '123Button', 'spaceButton',
+                'enterButton', 'EnCnButton', 'symbolButton'
+            ];
+            
+            for (const button of buttonNames) {
+                // 寻找按钮定义块
+                const buttonRegex = new RegExp(`${button}:\\s*([\\s\\S]*?)(\\n\\w+Button:|$)`, 'i');
+                const buttonMatch = yaml.match(buttonRegex);
+                
+                if (buttonMatch) {
+                    const buttonDefinition = buttonMatch[1];
+                    
+                    // 提取swipeUpAction和swipeDownAction
+                    buttonSettings[button] = {};
+                    
+                    // 处理swipeUpAction
+                    let upActionIndex = buttonDefinition.indexOf("swipeUpAction:");
+                    if (upActionIndex !== -1) {
+                        let startPos = upActionIndex;
+                        let endPos = findActionEndPosition(buttonDefinition, startPos);
+                        if (endPos > startPos) {
+                            buttonSettings[button].swipeUpAction = buttonDefinition.substring(startPos, endPos).trim();
+                        }
+                    }
+                    
+                    // 处理swipeDownAction
+                    let downActionIndex = buttonDefinition.indexOf("swipeDownAction:");
+                    if (downActionIndex !== -1) {
+                        let startPos = downActionIndex;
+                        let endPos = findActionEndPosition(buttonDefinition, startPos);
+                        if (endPos > startPos) {
+                            buttonSettings[button].swipeDownAction = buttonDefinition.substring(startPos, endPos).trim();
+                        }
+                    }
+                    
+                    if (!buttonSettings[button].swipeUpAction && !buttonSettings[button].swipeDownAction) {
+                        delete buttonSettings[button];
+                        continue;
+                    }
+                    
+                    // 提取相应的前景样式
+                    const upForegroundStyleRegex = new RegExp(`${button}UpForegroundStyle:[\\s\\S]*?(?=\\n\\w+:)`, 'i');
+                    const downForegroundStyleRegex = new RegExp(`${button}DownForegroundStyle:[\\s\\S]*?(?=\\n\\w+:)`, 'i');
+                    
+                    const upForegroundMatch = yaml.match(upForegroundStyleRegex);
+                    const downForegroundMatch = yaml.match(downForegroundStyleRegex);
+                    
+                    if (upForegroundMatch) {
+                        buttonSettings[button].upForegroundStyle = upForegroundMatch[0];
+                    }
+                    
+                    if (downForegroundMatch) {
+                        buttonSettings[button].downForegroundStyle = downForegroundMatch[0];
+                    }
+                }
+            }
+            
+            return buttonSettings;
+        }
+        
+        // 查找action定义的结束位置
+        function findActionEndPosition(text, startPos) {
+            // 从swipeXAction:开始
+            let pos = text.indexOf(":", startPos);
+            if (pos === -1) return startPos;
+            
+            pos++; // 移到冒号后面
+            
+            // 跳过空白字符
+            while (pos < text.length && /\s/.test(text[pos])) {
+                pos++;
+            }
+            
+            // 如果是大括号开始的对象
+            if (text[pos] === '{') {
+                let braceCount = 1;
+                pos++; // 移到左大括号后
+                
+                // 寻找匹配的右大括号
+                while (pos < text.length && braceCount > 0) {
+                    if (text[pos] === '{') {
+                        braceCount++;
+                    } else if (text[pos] === '}') {
+                        braceCount--;
+                    }
+                    pos++;
+                }
+                
+                // 找到换行符作为这行的结束
+                while (pos < text.length && text[pos] !== '\n') {
+                    pos++;
+                }
+                
+                return pos;
+            }
+            
+            // 如果不是对象而是简单值
+            let endPos = text.indexOf('\n', pos);
+            return endPos === -1 ? text.length : endPos;
+        }
+        
+        // 检查目标皮肤中的样式引用
+        function checkStyleReferences(yaml) {
+            const styleRefs = {};
+            
+            // 查找常见的样式引用
+            const styleRefRegex = /\*(\w+)/g;
+            const matches = Array.from(yaml.matchAll(styleRefRegex));
+            
+            for (const match of matches) {
+                styleRefs[match[1]] = true;
+            }
+            
+            return styleRefs;
+        }
+        
+        // 更新目标YAML
+        function updateTargetYaml(yaml, buttonSettings, styleReferences) {
+            let updatedYaml = yaml;
+            
+            for (const [button, settings] of Object.entries(buttonSettings)) {
+                // 更新swipeUpAction和swipeDownAction
+                if (settings.swipeUpAction) {
+                    // 转义反引号
+                    const escapedSwipeUpAction = settings.swipeUpAction.replace(/`/g, '\`');
+                    
+                    const swipeUpRegex = new RegExp(`(${button}:[\\s\\S]*?)swipeUpAction:.*?\\n`, 'i');
+                    const hasSwipeUp = swipeUpRegex.test(updatedYaml);
+                    
+                    if (hasSwipeUp) {
+                        updatedYaml = updatedYaml.replace(swipeUpRegex, `$1${escapedSwipeUpAction}\n`);
+                    } else {
+                        // 如果没有swipeUpAction，添加它
+                        const buttonEndRegex = new RegExp(`(${button}:[\\s\\S]*?)(\\n\\w+:)`, 'i');
+                        updatedYaml = updatedYaml.replace(buttonEndRegex, `$1  ${escapedSwipeUpAction}\n$2`);
+                    }
+                }
+                
+                if (settings.swipeDownAction) {
+                    // 转义反引号
+                    const escapedSwipeDownAction = settings.swipeDownAction.replace(/`/g, '\\`');
+                    
+                    const swipeDownRegex = new RegExp(`(${button}:[\\s\\S]*?)swipeDownAction:.*?\\n`, 'i');
+                    const hasSwipeDown = swipeDownRegex.test(updatedYaml);
+                    
+                    if (hasSwipeDown) {
+                        updatedYaml = updatedYaml.replace(swipeDownRegex, `$1${escapedSwipeDownAction}\n`);
+                    } else {
+                        // 如果没有swipeDownAction，添加它
+                        const buttonEndRegex = new RegExp(`(${button}:[\\s\\S]*?)(\\n\\w+:)`, 'i');
+                        updatedYaml = updatedYaml.replace(buttonEndRegex, `$1  ${escapedSwipeDownAction}\n$2`);
+                    }
+                }
+                
+                // 更新前景样式
+                if (settings.upForegroundStyle) {
+                    // 检查是否存在样式引用，如果不存在，则移除引用
+                    let styleContent = settings.upForegroundStyle;
+                    const styleRefMatch = styleContent.match(/<<:\s*\*(\w+)/);
+                    
+                    if (styleRefMatch && !styleReferences[styleRefMatch[1]]) {
+                        // 移除不存在的引用
+                        styleContent = styleContent.replace(/<<:\s*\*\w+\s*/, '');
+                    }
+                    
+                    // 查找是否已存在该样式
+                    const upStyleRegex = new RegExp(`${button}UpForegroundStyle:[\\s\\S]*?(?=\\n\\w+:)`, 'i');
+                    const hasUpStyle = upStyleRegex.test(updatedYaml);
+                    
+                    if (hasUpStyle) {
+                        updatedYaml = updatedYaml.replace(upStyleRegex, styleContent);
+                    } else {
+                        // 如果不存在，添加它
+                        const buttonStyleInsertPoint = findStyleInsertPoint(updatedYaml, button);
+                        if (buttonStyleInsertPoint !== -1) {
+                            updatedYaml = updatedYaml.substring(0, buttonStyleInsertPoint) + 
+                                        `\n${styleContent}\n` + 
+                                        updatedYaml.substring(buttonStyleInsertPoint);
+                        }
+                    }
+                }
+                
+                if (settings.downForegroundStyle) {
+                    // 检查是否存在样式引用，如果不存在，则移除引用
+                    let styleContent = settings.downForegroundStyle;
+                    const styleRefMatch = styleContent.match(/<<:\s*\*(\w+)/);
+                    
+                    if (styleRefMatch && !styleReferences[styleRefMatch[1]]) {
+                        // 移除不存在的引用
+                        styleContent = styleContent.replace(/<<:\s*\*\w+\s*/, '');
+                    }
+                    
+                    // 查找是否已存在该样式
+                    const downStyleRegex = new RegExp(`${button}DownForegroundStyle:[\\s\\S]*?(?=\\n\\w+:)`, 'i');
+                    const hasDownStyle = downStyleRegex.test(updatedYaml);
+                    
+                    if (hasDownStyle) {
+                        updatedYaml = updatedYaml.replace(downStyleRegex, styleContent);
+                    } else {
+                        // 如果不存在，添加它
+                        const buttonStyleInsertPoint = findStyleInsertPoint(updatedYaml, button);
+                        if (buttonStyleInsertPoint !== -1) {
+                            updatedYaml = updatedYaml.substring(0, buttonStyleInsertPoint) + 
+                                        `\n${styleContent}\n` + 
+                                        updatedYaml.substring(buttonStyleInsertPoint);
+                        }
+                    }
+                }
+            }
+            
+            return updatedYaml;
+        }
+        
+        // 找到样式插入点
+        function findStyleInsertPoint(yaml, button) {
+            // 寻找按钮样式的最佳插入点
+            const nextButtonRegex = new RegExp(`\\n(\\w+Button:)`, 'g');
+            let match;
+            let lastIndex = -1;
+            
+            // 找到当前按钮定义的位置
+            const buttonRegex = new RegExp(`\\n${button}:`, 'i');
+            const buttonMatch = buttonRegex.exec(yaml);
+            
+            if (!buttonMatch) {
+                return -1;
+            }
+            
+            // 从按钮定义开始搜索下一个按钮定义
+            nextButtonRegex.lastIndex = buttonMatch.index + buttonMatch[0].length;
+            
+            match = nextButtonRegex.exec(yaml);
+            if (match) {
+                return match.index;
+            }
+            
+            // 如果没有找到下一个按钮，返回文件末尾
+            return yaml.length;
+        }
+    </script>
+</body>
+</html>
