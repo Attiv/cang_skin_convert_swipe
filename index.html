@@ -290,11 +290,57 @@
                 'dButton', 'fButton', 'gButton', 'hButton', 'jButton', 'kButton', 
                 'lButton', 'zButton', 'xButton', 'cButton', 'vButton', 'bButton', 
                 'nButton', 'mButton', 'backspaceButton', '123Button', 'spaceButton',
-                'enterButton', 'EnCnButton', 'symbolButton'
+                'enterButton', 'EnCnButton', 'symbolButton', 'dotButton'
             ];
             
             logMessage('开始提取按键设置...');
+
+            // 检查和处理全局定义的样式（可能存在重复）
+            const globalStyleNames = [
+                'ButtonSwipeUpHintForeground',
+                'cnenButtonForeground1',
+                'ButtonHintForeground',
+                'ButtonHoldSymbolsOfqForeground'
+            ];
+
+            // 处理全局样式 - 只提取第一个匹配项
+            buttonSettings.globalStyles = {};
+            for (const styleName of globalStyleNames) {
+                // 使用更严格的正则表达式匹配
+                const styleRegex = new RegExp(`^${styleName}:[\\s\\S]*?(?=\\n[a-zA-Z][a-zA-Z0-9]*:)`, 'm');
+                const matches = yaml.match(new RegExp(`^${styleName}:.*$`, 'gm'));
+                
+                if (matches && matches.length > 0) {
+                    // 只取第一个匹配的定义
+                    const firstMatchPos = yaml.indexOf(matches[0]);
+                    const endPos = findStyleEndPosition(yaml, firstMatchPos);
+                    if (endPos > firstMatchPos) {
+                        buttonSettings.globalStyles[styleName] = yaml.substring(firstMatchPos, endPos).trim();
+                        logMessage(`  - 找到全局样式: ${styleName} (忽略${matches.length - 1}个重复定义)`);
+                    }
+                }
+            }
             
+            // 首先提取通用的样式引用定义
+            logMessage('开始查找样式引用定义...');
+            const styleIdentifierRegex = /(&\w+)\s*$/gm;
+            const styleIdentifiers = Array.from(yaml.matchAll(styleIdentifierRegex));
+            
+            for (const match of styleIdentifiers) {
+                const styleId = match[1];
+                const styleDefRegex = new RegExp(`[^\\s]+:\\s*${styleId}[\\s\\S]*?(?=\\n\\w+:|$)`, 'i');
+                const styleDefMatch = yaml.match(styleDefRegex);
+                
+                if (styleDefMatch) {
+                    if (!buttonSettings.styleReferences) {
+                        buttonSettings.styleReferences = {};
+                    }
+                    buttonSettings.styleReferences[styleId.substring(1)] = styleDefMatch[0];
+                    logMessage(`  - 找到样式引用: ${styleId}`);
+                }
+            }
+            
+            // 再提取每个按钮的设置
             for (const button of buttonNames) {
                 // 寻找按钮定义块
                 const buttonRegex = new RegExp(`${button}:\\s*([\\s\\S]*?)(\\n\\w+Button:|$)`, 'i');
@@ -329,23 +375,6 @@
                         }
                     }
                     
-                    // 提取相应的前景样式
-                    const upForegroundStyleRegex = new RegExp(`${button}UpForegroundStyle:[\\s\\S]*?(?=\\n\\w+:)`, 'i');
-                    const downForegroundStyleRegex = new RegExp(`${button}DownForegroundStyle:[\\s\\S]*?(?=\\n\\w+:)`, 'i');
-                    
-                    const upForegroundMatch = yaml.match(upForegroundStyleRegex);
-                    const downForegroundMatch = yaml.match(downForegroundStyleRegex);
-                    
-                    if (upForegroundMatch) {
-                        buttonSettings[button].upForegroundStyle = upForegroundMatch[0];
-                        logMessage(`  - 找到 UpForegroundStyle`);
-                    }
-                    
-                    if (downForegroundMatch) {
-                        buttonSettings[button].downForegroundStyle = downForegroundMatch[0];
-                        logMessage(`  - 找到 DownForegroundStyle`);
-                    }
-                    
                     // 提取滑动提示样式
                     const upHintStyleRegex = new RegExp(`${button}SwipeUpHintForegroundStyle:[\\s\\S]*?(?=\\n\\w+:)`, 'i');
                     const downHintStyleRegex = new RegExp(`${button}SwipeDownHintForegroundStyle:[\\s\\S]*?(?=\\n\\w+:)`, 'i');
@@ -363,22 +392,22 @@
                         logMessage(`  - 找到 SwipeDownHintForegroundStyle`);
                     }
                     
-                    // 提取按钮前景样式 (ButtonUpForegroundStyle)
-                    const buttonUpForegroundStyleRegex = new RegExp(`${button}UpForegroundStyle:[\\s\\S]*?(?=\\n\\w+:)`, 'i');
-                    const buttonUpForegroundMatch = yaml.match(buttonUpForegroundStyleRegex);
+                    // 提取按钮前景样式 (UpForegroundStyle)
+                    const upForegroundStyleRegex = new RegExp(`${button}UpForegroundStyle:[\\s\\S]*?(?=\\n\\w+:)`, 'i');
+                    const upForegroundMatch = yaml.match(upForegroundStyleRegex);
                     
-                    if (buttonUpForegroundMatch) {
-                        buttonSettings[button].buttonUpForegroundStyle = buttonUpForegroundMatch[0];
-                        logMessage(`  - 找到 ButtonUpForegroundStyle`);
+                    if (upForegroundMatch) {
+                        buttonSettings[button].upForegroundStyle = upForegroundMatch[0];
+                        logMessage(`  - 找到 UpForegroundStyle`);
                     }
                     
-                    // 提取按钮前景样式 (ButtonDownForegroundStyle)
-                    const buttonDownForegroundStyleRegex = new RegExp(`${button}DownForegroundStyle:[\\s\\S]*?(?=\\n\\w+:)`, 'i');
-                    const buttonDownForegroundMatch = yaml.match(buttonDownForegroundStyleRegex);
+                    // 提取按钮前景样式 (DownForegroundStyle)
+                    const downForegroundStyleRegex = new RegExp(`${button}DownForegroundStyle:[\\s\\S]*?(?=\\n\\w+:)`, 'i');
+                    const downForegroundMatch = yaml.match(downForegroundStyleRegex);
                     
-                    if (buttonDownForegroundMatch) {
-                        buttonSettings[button].buttonDownForegroundStyle = buttonDownForegroundMatch[0];
-                        logMessage(`  - 找到 ButtonDownForegroundStyle`);
+                    if (downForegroundMatch) {
+                        buttonSettings[button].downForegroundStyle = downForegroundMatch[0];
+                        logMessage(`  - 找到 DownForegroundStyle`);
                     }
                     
                     // 提取HoldSymbols样式
@@ -414,26 +443,25 @@
                 }
             }
             
-            // 查找引用样式定义
-            logMessage('开始查找样式引用定义...');
-            const styleIdentifierRegex = /(&\w+)\s*$/gm;
-            const styleIdentifiers = Array.from(yaml.matchAll(styleIdentifierRegex));
+            return buttonSettings;
+        }
+
+        // 查找样式定义的结束位置
+        function findStyleEndPosition(text, startPos) {
+            // 从样式名开始
+            let pos = text.indexOf(":", startPos);
+            if (pos === -1) return startPos;
             
-            for (const match of styleIdentifiers) {
-                const styleId = match[1];
-                const styleDefRegex = new RegExp(`[^\\s]+:\\s*${styleId}[\\s\\S]*?(?=\\n\\w+:|$)`, 'i');
-                const styleDefMatch = yaml.match(styleDefRegex);
-                
-                if (styleDefMatch) {
-                    if (!buttonSettings.styleReferences) {
-                        buttonSettings.styleReferences = {};
-                    }
-                    buttonSettings.styleReferences[styleId.substring(1)] = styleDefMatch[0];
-                    logMessage(`  - 找到样式引用: ${styleId}`);
-                }
+            pos++; // 移到冒号后面
+            
+            // 找到下一个以字母开头的键的位置
+            const nextKeyMatch = text.substring(pos).match(/\n[a-zA-Z][a-zA-Z0-9]*:/);
+            if (nextKeyMatch) {
+                return pos + nextKeyMatch.index;
             }
             
-            return buttonSettings;
+            // 如果没有找到下一个键，返回剩余的全部文本
+            return text.length;
         }
         
         // 查找action定义的结束位置
@@ -498,6 +526,31 @@
             
             logMessage('开始更新目标YAML...');
             
+            // 首先检查目标YAML中是否存在已知会导致重复的键
+            const knownProblematicKeys = ['cnenButtonForeground1', 'ButtonSwipeUpHintForeground'];
+            
+            for (const key of knownProblematicKeys) {
+                // 查找所有匹配项位置
+                const regex = new RegExp(`^${key}:`, 'gm');
+                const matches = [...updatedYaml.matchAll(regex)];
+                
+                if (matches.length > 1) {
+                    logMessage(`  - 检测到重复键 ${key} (${matches.length}个)`);
+                    
+                    // 从后向前删除重复的定义，保留第一个
+                    for (let i = matches.length - 1; i > 0; i--) {
+                        const startPos = matches[i].index;
+                        // 寻找定义结束的位置（下一个键开始的位置）
+                        const nextKey = updatedYaml.substring(startPos).match(/\n[a-zA-Z][a-zA-Z0-9_]*:/);
+                        const endPos = nextKey ? startPos + nextKey.index : updatedYaml.length;
+                        
+                        // 从YAML中移除重复定义
+                        updatedYaml = updatedYaml.substring(0, startPos) + updatedYaml.substring(endPos);
+                        logMessage(`  - 移除重复的 ${key} 定义`);
+                    }
+                }
+            }
+            
             // 首先添加样式引用定义
             if (buttonSettings.styleReferences) {
                 logMessage('处理样式引用定义...');
@@ -516,8 +569,46 @@
                 }
             }
             
+            // 处理全局样式，确保不会重复添加
+            if (buttonSettings.globalStyles) {
+                logMessage('处理全局样式...');
+                for (const [styleName, styleContent] of Object.entries(buttonSettings.globalStyles)) {
+                    // 检查目标YAML中是否已存在该样式
+                    const styleNameEscaped = styleName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                    const styleKeyRegex = new RegExp(`^${styleNameEscaped}:`, 'gm');
+                    const matches = [...updatedYaml.matchAll(styleKeyRegex)];
+                    
+                    if (matches.length > 0) {
+                        // 如果已经存在，更新第一个定义，删除其余定义
+                        if (matches.length > 1) {
+                            logMessage(`  - 检测到重复的全局样式: ${styleName} (${matches.length}个)`);
+                            // 从后向前删除重复的定义，保留第一个
+                            for (let i = matches.length - 1; i > 0; i--) {
+                                const startPos = matches[i].index;
+                                const nextKey = updatedYaml.substring(startPos).match(/\n[a-zA-Z][a-zA-Z0-9_]*:/);
+                                const endPos = nextKey ? startPos + nextKey.index : updatedYaml.length;
+                                updatedYaml = updatedYaml.substring(0, startPos) + updatedYaml.substring(endPos);
+                                logMessage(`  - 移除重复的 ${styleName} 定义`);
+                            }
+                        }
+                        
+                        // 更新第一个匹配项
+                        const startPos = matches[0].index;
+                        const nextKey = updatedYaml.substring(startPos).match(/\n[a-zA-Z][a-zA-Z0-9_]*:/);
+                        const endPos = nextKey ? startPos + nextKey.index : updatedYaml.length;
+                        updatedYaml = updatedYaml.substring(0, startPos) + styleContent + 
+                                      updatedYaml.substring(endPos);
+                        logMessage(`  - 更新全局样式: ${styleName}`);
+                    } else {
+                        // 不存在，添加到YAML开头
+                        updatedYaml = styleContent + '\n\n' + updatedYaml;
+                        logMessage(`  - 添加全局样式: ${styleName}`);
+                    }
+                }
+            }
+            
             for (const [button, settings] of Object.entries(buttonSettings)) {
-                if (button === 'styleReferences') continue;
+                if (button === 'styleReferences' || button === 'globalStyles') continue;
                 
                 logMessage(`处理按钮: ${button}`);
                 
@@ -552,285 +643,93 @@
                     }
                 }
                 
-                // 更新前景样式
-                if (settings.upForegroundStyle) {
-                    let styleContent = settings.upForegroundStyle;
-                    const styleRefMatch = styleContent.match(/<<:\s*\*(\w+)/);
+                // 通用函数：处理样式并确保不会重复
+                function processStyleSafely(styleContent, styleType) {
+                    if (!styleContent) return;
                     
+                    // 处理样式引用
+                    const styleRefMatch = styleContent.match(/<<:\s*\*(\w+)/);
                     if (styleRefMatch) {
                         const styleId = styleRefMatch[1];
-                        // 检查目标YAML中是否存在相同的样式引用
+                        // 检查引用的样式定义是否存在
                         if (buttonSettings.styleReferences && buttonSettings.styleReferences[styleId]) {
                             const styleDef = buttonSettings.styleReferences[styleId];
-                            // 检查目标YAML中是否已存在该样式定义
                             const styleDefRegex = new RegExp(`[^\\s]+:\\s*&${styleId}\\s`, 'i');
                             if (!styleDefRegex.test(updatedYaml)) {
-                                // 添加到YAML文件的开始部分
+                                // 添加引用的样式定义
                                 updatedYaml = styleDef + '\n\n' + updatedYaml;
                                 logMessage(`  - 添加样式定义: ${styleId}`);
                             }
                         }
                     }
                     
-                    const upStyleRegex = new RegExp(`${button}UpForegroundStyle:[\\s\\S]*?(?=\\n\\w+:)`, 'i');
-                    const hasUpStyle = upStyleRegex.test(updatedYaml);
+                    // 获取样式名并转义特殊字符
+                    const styleName = styleContent.split(':')[0];
+                    const styleNameEscaped = styleName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
                     
-                    if (hasUpStyle) {
-                        updatedYaml = updatedYaml.replace(upStyleRegex, styleContent);
-                        logMessage(`  - 更新 UpForegroundStyle`);
+                    // 检查是否存在重复定义
+                    const styleKeyRegex = new RegExp(`^${styleNameEscaped}:`, 'gm');
+                    const matches = [...updatedYaml.matchAll(styleKeyRegex)];
+                    
+                    if (matches.length > 0) {
+                        // 如果已经存在，先清理重复项
+                        if (matches.length > 1) {
+                            logMessage(`  - 检测到重复的 ${styleName} 定义 (${matches.length}个)`);
+                            // 从后向前删除重复的定义，保留第一个
+                            for (let i = matches.length - 1; i > 0; i--) {
+                                const startPos = matches[i].index;
+                                const nextKey = updatedYaml.substring(startPos).match(/\n[a-zA-Z][a-zA-Z0-9_]*:/);
+                                const endPos = nextKey ? startPos + nextKey.index : updatedYaml.length;
+                                updatedYaml = updatedYaml.substring(0, startPos) + updatedYaml.substring(endPos);
+                                logMessage(`  - 移除重复的 ${styleName} 定义`);
+                            }
+                        }
+                        
+                        // 更新第一个匹配项
+                        const startPos = matches[0].index;
+                        const nextKey = updatedYaml.substring(startPos).match(/\n[a-zA-Z][a-zA-Z0-9_]*:/);
+                        const endPos = nextKey ? startPos + nextKey.index : updatedYaml.length;
+                        updatedYaml = updatedYaml.substring(0, startPos) + styleContent + 
+                                      updatedYaml.substring(endPos);
+                        logMessage(`  - 更新 ${styleType}: ${styleName}`);
                     } else {
+                        // 不存在，添加新的样式
                         const buttonStyleInsertPoint = findStyleInsertPoint(updatedYaml, button);
                         if (buttonStyleInsertPoint !== -1) {
                             updatedYaml = updatedYaml.substring(0, buttonStyleInsertPoint) + 
                                         `\n${styleContent}\n` + 
                                         updatedYaml.substring(buttonStyleInsertPoint);
-                            logMessage(`  - 添加 UpForegroundStyle`);
+                            logMessage(`  - 添加 ${styleType}: ${styleName}`);
                         }
                     }
+                }
+                
+                // 处理所有样式类型
+                if (settings.upForegroundStyle) {
+                    processStyleSafely(settings.upForegroundStyle, 'UpForegroundStyle');
                 }
                 
                 if (settings.downForegroundStyle) {
-                    let styleContent = settings.downForegroundStyle;
-                    const styleRefMatch = styleContent.match(/<<:\s*\*(\w+)/);
-                    
-                    if (styleRefMatch) {
-                        const styleId = styleRefMatch[1];
-                        // 检查目标YAML中是否存在相同的样式引用
-                        if (buttonSettings.styleReferences && buttonSettings.styleReferences[styleId]) {
-                            const styleDef = buttonSettings.styleReferences[styleId];
-                            // 检查目标YAML中是否已存在该样式定义
-                            const styleDefRegex = new RegExp(`[^\\s]+:\\s*&${styleId}\\s`, 'i');
-                            if (!styleDefRegex.test(updatedYaml)) {
-                                // 添加到YAML文件的开始部分
-                                updatedYaml = styleDef + '\n\n' + updatedYaml;
-                                logMessage(`  - 添加样式定义: ${styleId}`);
-                            }
-                        }
-                    }
-                    
-                    const downStyleRegex = new RegExp(`${button}DownForegroundStyle:[\\s\\S]*?(?=\\n\\w+:)`, 'i');
-                    const hasDownStyle = downStyleRegex.test(updatedYaml);
-                    
-                    if (hasDownStyle) {
-                        updatedYaml = updatedYaml.replace(downStyleRegex, styleContent);
-                        logMessage(`  - 更新 DownForegroundStyle`);
-                    } else {
-                        const buttonStyleInsertPoint = findStyleInsertPoint(updatedYaml, button);
-                        if (buttonStyleInsertPoint !== -1) {
-                            updatedYaml = updatedYaml.substring(0, buttonStyleInsertPoint) + 
-                                        `\n${styleContent}\n` + 
-                                        updatedYaml.substring(buttonStyleInsertPoint);
-                            logMessage(`  - 添加 DownForegroundStyle`);
-                        }
-                    }
+                    processStyleSafely(settings.downForegroundStyle, 'DownForegroundStyle');
                 }
                 
-                // 更新SwipeUpHint和SwipeDownHint样式
                 if (settings.swipeUpHintStyle) {
-                    let styleContent = settings.swipeUpHintStyle;
-                    const styleRefMatch = styleContent.match(/<<:\s*\*(\w+)/);
-                    
-                    if (styleRefMatch) {
-                        const styleId = styleRefMatch[1];
-                        // 检查目标YAML中是否存在相同的样式引用
-                        if (buttonSettings.styleReferences && buttonSettings.styleReferences[styleId]) {
-                            const styleDef = buttonSettings.styleReferences[styleId];
-                            // 检查目标YAML中是否已存在该样式定义
-                            const styleDefRegex = new RegExp(`[^\\s]+:\\s*&${styleId}\\s`, 'i');
-                            if (!styleDefRegex.test(updatedYaml)) {
-                                // 添加到YAML文件的开始部分
-                                updatedYaml = styleDef + '\n\n' + updatedYaml;
-                                logMessage(`  - 添加样式定义: ${styleId}`);
-                            }
-                        }
-                    }
-                    
-                    const upHintStyleRegex = new RegExp(`${button}SwipeUpHintForegroundStyle:[\\s\\S]*?(?=\\n\\w+:)`, 'i');
-                    const hasUpHintStyle = upHintStyleRegex.test(updatedYaml);
-                    
-                    if (hasUpHintStyle) {
-                        updatedYaml = updatedYaml.replace(upHintStyleRegex, styleContent);
-                        logMessage(`  - 更新 SwipeUpHintForegroundStyle`);
-                    } else {
-                        const buttonStyleInsertPoint = findStyleInsertPoint(updatedYaml, button);
-                        if (buttonStyleInsertPoint !== -1) {
-                            updatedYaml = updatedYaml.substring(0, buttonStyleInsertPoint) + 
-                                        `\n${styleContent}\n` + 
-                                        updatedYaml.substring(buttonStyleInsertPoint);
-                            logMessage(`  - 添加 SwipeUpHintForegroundStyle`);
-                        }
-                    }
+                    processStyleSafely(settings.swipeUpHintStyle, 'SwipeUpHintForegroundStyle');
                 }
                 
                 if (settings.swipeDownHintStyle) {
-                    let styleContent = settings.swipeDownHintStyle;
-                    const styleRefMatch = styleContent.match(/<<:\s*\*(\w+)/);
-                    
-                    if (styleRefMatch) {
-                        const styleId = styleRefMatch[1];
-                        // 检查引用的样式定义是否存在于目标YAML中
-                        if (buttonSettings.styleReferences && buttonSettings.styleReferences[styleId]) {
-                            const styleDef = buttonSettings.styleReferences[styleId];
-                            // 检查目标YAML中是否已存在该样式定义
-                            const styleDefRegex = new RegExp(`[^\\s]+:\\s*&${styleId}\\s`, 'i');
-                            if (!styleDefRegex.test(updatedYaml)) {
-                                // 添加到YAML文件的开始部分
-                                updatedYaml = styleDef + '\n\n' + updatedYaml;
-                                logMessage(`  - 添加样式定义: ${styleId}`);
-                            }
-                        }
-                    }
-                    
-                    const downHintStyleRegex = new RegExp(`${button}SwipeDownHintForegroundStyle:[\\s\\S]*?(?=\\n\\w+:)`, 'i');
-                    const hasDownHintStyle = downHintStyleRegex.test(updatedYaml);
-                    
-                    if (hasDownHintStyle) {
-                        updatedYaml = updatedYaml.replace(downHintStyleRegex, styleContent);
-                        logMessage(`  - 更新 SwipeDownHintForegroundStyle`);
-                    } else {
-                        const buttonStyleInsertPoint = findStyleInsertPoint(updatedYaml, button);
-                        if (buttonStyleInsertPoint !== -1) {
-                            updatedYaml = updatedYaml.substring(0, buttonStyleInsertPoint) + 
-                                        `\n${styleContent}\n` + 
-                                        updatedYaml.substring(buttonStyleInsertPoint);
-                            logMessage(`  - 添加 SwipeDownHintForegroundStyle`);
-                        }
-                    }
+                    processStyleSafely(settings.swipeDownHintStyle, 'SwipeDownHintForegroundStyle');
                 }
                 
-                // 更新ButtonUpForegroundStyle
-                if (settings.buttonUpForegroundStyle) {
-                    let styleContent = settings.buttonUpForegroundStyle;
-                    const styleRefMatch = styleContent.match(/<<:\s*\*(\w+)/);
-                    
-                    if (styleRefMatch) {
-                        const styleId = styleRefMatch[1];
-                        // 检查引用的样式定义是否存在于目标YAML中
-                        if (buttonSettings.styleReferences && buttonSettings.styleReferences[styleId]) {
-                            const styleDef = buttonSettings.styleReferences[styleId];
-                            // 检查目标YAML中是否已存在该样式定义
-                            const styleDefRegex = new RegExp(`[^\\s]+:\\s*&${styleId}\\s`, 'i');
-                            if (!styleDefRegex.test(updatedYaml)) {
-                                // 添加到YAML文件的开始部分
-                                updatedYaml = styleDef + '\n\n' + updatedYaml;
-                                logMessage(`  - 添加样式定义: ${styleId}`);
-                            }
-                        }
-                    }
-                    
-                    const buttonUpForegroundStyleRegex = new RegExp(`${button}UpForegroundStyle:[\\s\\S]*?(?=\\n\\w+:)`, 'i');
-                    const hasButtonUpForegroundStyle = buttonUpForegroundStyleRegex.test(updatedYaml);
-                    
-                    if (hasButtonUpForegroundStyle) {
-                        updatedYaml = updatedYaml.replace(buttonUpForegroundStyleRegex, styleContent);
-                        logMessage(`  - 更新 ButtonUpForegroundStyle`);
-                    } else {
-                        const buttonStyleInsertPoint = findStyleInsertPoint(updatedYaml, button);
-                        if (buttonStyleInsertPoint !== -1) {
-                            updatedYaml = updatedYaml.substring(0, buttonStyleInsertPoint) + 
-                                        `\n${styleContent}\n` + 
-                                        updatedYaml.substring(buttonStyleInsertPoint);
-                            logMessage(`  - 添加 ButtonUpForegroundStyle`);
-                        }
-                    }
-                }
-                
-                // 更新ButtonDownForegroundStyle
-                if (settings.buttonDownForegroundStyle) {
-                    let styleContent = settings.buttonDownForegroundStyle;
-                    const styleRefMatch = styleContent.match(/<<:\s*\*(\w+)/);
-                    
-                    if (styleRefMatch) {
-                        const styleId = styleRefMatch[1];
-                        // 检查引用的样式定义是否存在于目标YAML中
-                        if (buttonSettings.styleReferences && buttonSettings.styleReferences[styleId]) {
-                            const styleDef = buttonSettings.styleReferences[styleId];
-                            // 检查目标YAML中是否已存在该样式定义
-                            const styleDefRegex = new RegExp(`[^\\s]+:\\s*&${styleId}\\s`, 'i');
-                            if (!styleDefRegex.test(updatedYaml)) {
-                                // 添加到YAML文件的开始部分
-                                updatedYaml = styleDef + '\n\n' + updatedYaml;
-                                logMessage(`  - 添加样式定义: ${styleId}`);
-                            }
-                        }
-                    }
-                    
-                    const buttonDownForegroundStyleRegex = new RegExp(`${button}DownForegroundStyle:[\\s\\S]*?(?=\\n\\w+:)`, 'i');
-                    const hasButtonDownForegroundStyle = buttonDownForegroundStyleRegex.test(updatedYaml);
-                    
-                    if (hasButtonDownForegroundStyle) {
-                        updatedYaml = updatedYaml.replace(buttonDownForegroundStyleRegex, styleContent);
-                        logMessage(`  - 更新 ButtonDownForegroundStyle`);
-                    } else {
-                        const buttonStyleInsertPoint = findStyleInsertPoint(updatedYaml, button);
-                        if (buttonStyleInsertPoint !== -1) {
-                            updatedYaml = updatedYaml.substring(0, buttonStyleInsertPoint) + 
-                                        `\n${styleContent}\n` + 
-                                        updatedYaml.substring(buttonStyleInsertPoint);
-                            logMessage(`  - 添加 ButtonDownForegroundStyle`);
-                        }
-                    }
-                }
-                
-                // 更新HoldSymbols样式
                 if (settings.holdSymbolsStyle) {
-                    let styleContent = settings.holdSymbolsStyle;
-                    
-                    const holdSymbolsStyleRegex = new RegExp(`${button}HoldSymbolsStyle:[\\s\\S]*?(?=\\n\\w+Button|$)`, 'i');
-                    const hasHoldSymbolsStyle = holdSymbolsStyleRegex.test(updatedYaml);
-                    
-                    if (hasHoldSymbolsStyle) {
-                        updatedYaml = updatedYaml.replace(holdSymbolsStyleRegex, styleContent);
-                        logMessage(`  - 更新 HoldSymbolsStyle`);
-                    } else {
-                        const buttonStyleInsertPoint = findStyleInsertPoint(updatedYaml, button);
-                        if (buttonStyleInsertPoint !== -1) {
-                            updatedYaml = updatedYaml.substring(0, buttonStyleInsertPoint) + 
-                                        `\n${styleContent}\n` + 
-                                        updatedYaml.substring(buttonStyleInsertPoint);
-                            logMessage(`  - 添加 HoldSymbolsStyle`);
-                        }
-                    }
+                    processStyleSafely(settings.holdSymbolsStyle, 'HoldSymbolsStyle');
                 }
                 
-                // 更新HoldSymbolsForegroundStyle
+                // 处理HoldSymbolsForegroundStyle
                 if (settings.holdSymbolsForegroundStyles && settings.holdSymbolsForegroundStyles.length > 0) {
                     logMessage(`  - 处理 ${settings.holdSymbolsForegroundStyles.length} 个 HoldSymbolsForegroundStyle`);
                     for (const styleContent of settings.holdSymbolsForegroundStyles) {
-                        const styleName = styleContent.split(':')[0];
-                        const styleRegex = new RegExp(`${styleName}:[\\s\\S]*?(?=\\n\\w+:)`, 'i');
-                        const hasStyle = styleRegex.test(updatedYaml);
-                        
-                        let processedStyle = styleContent;
-                        // 检查样式引用并处理
-                        const styleRefMatch = processedStyle.match(/<<:\s*\*(\w+)/);
-                        if (styleRefMatch) {
-                            const styleId = styleRefMatch[1];
-                            // 检查引用的样式定义是否存在于目标YAML中
-                            if (buttonSettings.styleReferences && buttonSettings.styleReferences[styleId]) {
-                                const styleDef = buttonSettings.styleReferences[styleId];
-                                // 检查目标YAML中是否已存在该样式定义
-                                const styleDefRegex = new RegExp(`[^\\s]+:\\s*&${styleId}\\s`, 'i');
-                                if (!styleDefRegex.test(updatedYaml)) {
-                                    // 添加到YAML文件的开始部分
-                                    updatedYaml = styleDef + '\n\n' + updatedYaml;
-                                    logMessage(`  - 添加样式定义: ${styleId}`);
-                                }
-                            }
-                        }
-                        
-                        if (hasStyle) {
-                            updatedYaml = updatedYaml.replace(styleRegex, processedStyle);
-                            logMessage(`  - 更新 ${styleName}`);
-                        } else {
-                            const buttonStyleInsertPoint = findStyleInsertPoint(updatedYaml, button);
-                            if (buttonStyleInsertPoint !== -1) {
-                                updatedYaml = updatedYaml.substring(0, buttonStyleInsertPoint) + 
-                                            `\n${processedStyle}\n` + 
-                                            updatedYaml.substring(buttonStyleInsertPoint);
-                                logMessage(`  - 添加 ${styleName}`);
-                            }
-                        }
+                        processStyleSafely(styleContent, 'HoldSymbolsForegroundStyle');
                     }
                 }
             }
