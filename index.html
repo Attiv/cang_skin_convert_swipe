@@ -813,6 +813,14 @@
                     
                     // 用于从YAML内容中提取指定样式的辅助函数
                     function extractStyle(content, button, styleName) {
+                        // 如果指定了完整样式名，直接查找
+                        if (button === '' && styleName) {
+                            const fullPattern = new RegExp(`\\n(${styleName}:[\\s\\S]*?)(?=\\n[a-zA-Z0-9_]+(?!\\s):|$)`, 'i');
+                            const fullMatch = content.match(fullPattern);
+                            return fullMatch ? fullMatch[1] : null;
+                        }
+                        
+                        // 否则组合按钮前缀和样式名称
                         const pattern = new RegExp(`\\n(${button}${styleName}:[\\s\\S]*?)(?=\\n[a-zA-Z0-9_]+(?!\\s):|$)`, 'i');
                         const match = content.match(pattern);
                         return match ? match[1] : null;
@@ -995,6 +1003,37 @@
                             'HoldSymbolsStyle'
                         ];
                         
+                        // 需要特殊处理的样式（包括所有按钮的样式）
+                        let specialStyleNames = [
+                            // 普通按钮样式
+                            'ButtonUpForegroundStyle',
+                            'ButtonDownForegroundStyle',
+                            'ButtonHoldSymbolsForegroundStyle',
+                            'ButtonSwipeUpHintForegroundStyle',
+                            'ButtonSwipeDownHintForegroundStyle',
+                            // 其他可能的按钮样式
+                            'DownForegroundStyle',
+                            'UpForegroundStyle',
+                            'HoldSymbolsForegroundStyle',
+                            'SwipeUpHintForegroundStyle',
+                            'SwipeDownHintForegroundStyle'
+                        ];
+                        
+                        // 动态添加所有按钮的样式名到特殊样式列表
+                        const targetButtonRegex = /\n([a-zA-Z0-9_]+Button):/g;
+                        let targetButtonMatch;
+                        while ((targetButtonMatch = targetButtonRegex.exec(yamlContent)) !== null) {
+                            const btn = targetButtonMatch[1];
+                            const btnPrefix = btn.replace(/Button$/, '');
+                            ['DownForegroundStyle', 'UpForegroundStyle', 'HoldSymbolsForegroundStyle', 
+                             'SwipeUpHintForegroundStyle', 'SwipeDownHintForegroundStyle'].forEach(suffix => {
+                                const fullStyleName = btnPrefix + suffix;
+                                if (!specialStyleNames.includes(fullStyleName)) {
+                                    specialStyleNames.push(fullStyleName);
+                                }
+                            });
+                        }
+                        
                         // 处理每种样式类型
                         foregroundStyleSuffixes.forEach(suffix => {
                             const style = extractStyle(yamlContent, buttonPrefix, suffix);
@@ -1003,6 +1042,17 @@
                                 const camelCaseName = suffix.charAt(0).toLowerCase() + suffix.slice(1);
                                 buttonSettings.buttons[button][camelCaseName] = style;
                                 console.log(`  找到${suffix}: ${style.substring(0, 50)}...`);
+                            }
+                        });
+                        
+                        // 处理特殊样式（包括上下划样式）
+                        specialStyleNames.forEach(styleName => {
+                            // 直接在YAML中查找完整的样式名
+                            const style = extractStyle(yamlContent, '', styleName);
+                            if (style) {
+                                // 使用完整的样式名作为属性名
+                                buttonSettings.buttons[button][styleName] = style;
+                                console.log(`  找到特殊样式 ${styleName}: ${style.substring(0, 50)}...`);
                             }
                         });
                         
@@ -1293,10 +1343,46 @@
                             'holdSymbolsStyle'
                         ];
                         
+                        // 需要特殊处理的样式（包括所有按钮的样式）
+                        let specialStyleNames = [
+                            // m前缀样式
+                            'mButtonDownForegroundStyle',
+                            'mButtonUpForegroundStyle',
+                            'mButtonHoldSymbolsForegroundStyle1',
+                            'mButtonSwipeDownHintForegroundStyle',
+                            // 普通按钮样式
+                            'ButtonUpForegroundStyle',
+                            'ButtonDownForegroundStyle',
+                            'ButtonHoldSymbolsForegroundStyle',
+                            'ButtonSwipeUpHintForegroundStyle',
+                            'ButtonSwipeDownHintForegroundStyle',
+                            // 其他可能的按钮样式
+                            'DownForegroundStyle',
+                            'UpForegroundStyle',
+                            'HoldSymbolsForegroundStyle',
+                            'SwipeUpHintForegroundStyle',
+                            'SwipeDownHintForegroundStyle'
+                        ];
+                        
+                        // 动态添加所有按钮的样式名到特殊样式列表
+                        const targetButtonRegex = /\n([a-zA-Z0-9_]+Button):/g;
+                        let targetButtonMatch;
+                        while ((targetButtonMatch = targetButtonRegex.exec(updatedYaml)) !== null) {
+                            const btn = targetButtonMatch[1];
+                            const btnPrefix = btn.replace(/Button$/, '');
+                            ['DownForegroundStyle', 'UpForegroundStyle', 'HoldSymbolsForegroundStyle', 
+                             'SwipeUpHintForegroundStyle', 'SwipeDownHintForegroundStyle'].forEach(suffix => {
+                                const fullStyleName = btnPrefix + suffix;
+                                if (!specialStyleNames.includes(fullStyleName)) {
+                                    specialStyleNames.push(fullStyleName);
+                                }
+                            });
+                        }
+                        
                         // 从按钮名中获取前缀（去掉Button后缀）
                         const buttonPrefix = button.replace(/Button$/, '');
                         
-                        // 处理每种样式
+                        // 处理每种样式类型
                         foregroundStyleSuffixes.forEach(styleSuffix => {
                             if (settings[styleSuffix]) {
                                 // 转换为YAML中的样式名称
@@ -1333,8 +1419,40 @@
                                     // 更新或添加样式内容
                                     if (styleExists) {
                                         console.log(`  更新样式 ${yamlStyleName}`);
-                                        const stylePattern = new RegExp(`\\n${yamlStyleName}:[^\\n]*(?:\\n\\s+[^\\n]*)*`, 'g');
-                                        updatedYaml = updatedYaml.replace(stylePattern, `\n${settings[styleSuffix]}`);
+                                        
+                                        // 如果包含ForegroundStyle，使用完整替换以保留特殊字符
+                                        if (yamlStyleName.includes('ForegroundStyle')) {
+                                            console.log(`  检查前景样式的文本属性: ${yamlStyleName}`);
+                                            
+                                            // 直接使用完整替换，不尝试提取text属性
+                                            // 这样可以确保特殊字符（如反斜杠）不会丢失
+                                            console.log(`  使用完整替换确保特殊字符不丢失`);
+                                            const stylePattern = new RegExp(`\\n${yamlStyleName}:[^\\n]*(?:\\n\\s+[^\\n]*)*`, 'g');
+                                            
+                                            // 检查源样式是否包含text属性
+                                            if (settings[styleSuffix].includes('text:')) {
+                                                // 提取text值用于日志显示，但不用于替换逻辑
+                                                const textMatch = settings[styleSuffix].match(/\stext:\s*(['"])(.*?)\1/s);
+                                                if (textMatch) {
+                                                    console.log(`  源样式文本值: ${textMatch[2]}`);
+                                                }
+                                            }
+                                            
+                                            // 直接替换整个样式块
+                                            updatedYaml = updatedYaml.replace(stylePattern, `\n${settings[styleSuffix]}`);
+                                            console.log(`  完整替换样式: ${yamlStyleName}`);
+                                            
+                                            // 验证替换后的结果
+                                            const verifyPattern = new RegExp(`\\n${yamlStyleName}:[^\\n]*(?:\\n\\s+[^\\n]*)*`, 'g');
+                                            const verifyMatch = verifyPattern.exec(updatedYaml);
+                                            if (verifyMatch) {
+                                                console.log(`  验证替换成功: ${verifyMatch[0].includes('text:') ? '包含text属性' : '不包含text属性'}`);
+                                            }
+                                        } else {
+                                            // 非前景样式使用普通替换
+                                            const stylePattern = new RegExp(`\\n${yamlStyleName}:[^\\n]*(?:\\n\\s+[^\\n]*)*`, 'g');
+                                            updatedYaml = updatedYaml.replace(stylePattern, `\n${settings[styleSuffix]}`);
+                                        }
                                     } else {
                                         console.log(`  添加样式 ${yamlStyleName}`);
                                         // 在按钮定义之前添加样式
@@ -1394,8 +1512,39 @@
                                     // 更新或添加样式内容
                                     if (styleExists) {
                                         console.log(`  更新样式 ${styleName}`);
-                                        const stylePattern = new RegExp(`\\n${styleName}:[^\\n]*(?:\\n\\s+[^\\n]*)*`, 'g');
-                                        updatedYaml = updatedYaml.replace(stylePattern, `\n${style}`);
+                                        // 如果包含ForegroundStyle，检查是否有text属性
+                                        if (styleName.includes('ForegroundStyle')) {
+                                            console.log(`  检查前景样式的文本属性: ${styleName}`);
+                                            
+                                            // 直接使用完整替换，不尝试提取text属性
+                                            // 这样可以确保特殊字符（如反斜杠）不会丢失
+                                            console.log(`  使用完整替换确保特殊字符不丢失`);
+                                            const stylePattern = new RegExp(`\\n${styleName}:[^\\n]*(?:\\n\\s+[^\\n]*)*`, 'g');
+                                            
+                                            // 检查源样式是否包含text属性
+                                            if (style.includes('text:')) {
+                                                // 提取text值用于日志显示，但不用于替换逻辑
+                                                const textMatch = style.match(/\stext:\s*(['"])(.*?)\1/s);
+                                                if (textMatch) {
+                                                    console.log(`  源样式文本值: ${textMatch[2]}`);
+                                                }
+                                            }
+                                            
+                                            // 直接替换整个样式块
+                                            updatedYaml = updatedYaml.replace(stylePattern, `\n${style}`);
+                                            console.log(`  完整替换样式: ${styleName}`);
+                                            
+                                            // 验证替换后的结果
+                                            const verifyPattern = new RegExp(`\\n${styleName}:[^\\n]*(?:\\n\\s+[^\\n]*)*`, 'g');
+                                            const verifyMatch = verifyPattern.exec(updatedYaml);
+                                            if (verifyMatch) {
+                                                console.log(`  验证替换成功: ${verifyMatch[0].includes('text:') ? '包含text属性' : '不包含text属性'}`);
+                                            }
+                                        } else {
+                                            // 非文本相关样式进行完整替换
+                                            const stylePattern = new RegExp(`\\n${styleName}:[^\\n]*(?:\\n\\s+[^\\n]*)*`, 'g');
+                                            updatedYaml = updatedYaml.replace(stylePattern, `\n${style}`);
+                                        }
                                     } else {
                                         console.log(`  添加样式 ${styleName}`);
                                         // 在按钮定义之前添加样式
