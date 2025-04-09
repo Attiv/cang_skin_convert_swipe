@@ -50,6 +50,20 @@
             background-color: #cccccc;
             cursor: not-allowed;
         }
+        .download-button {
+            display: inline-block;
+            background-color: #4CAF50;
+            color: white;
+            text-decoration: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            font-weight: bold;
+            margin-top: 10px;
+            transition: background-color 0.3s;
+        }
+        .download-button:hover {
+            background-color: #45a049;
+        }
         #status {
             margin-top: 20px;
             padding: 10px;
@@ -81,6 +95,20 @@
             font-size: 14px;
             line-height: 1.4;
         }
+        .log-area {
+            background-color: #f8f9fa;
+            border-radius: 5px;
+            padding: 10px;
+            margin-top: 10px;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+        .result-area {
+            background-color: #f8f9fa;
+            border-radius: 5px;
+            padding: 10px;
+            margin-top: 10px;
+        }
     </style>
 </head>
 <body>
@@ -93,9 +121,11 @@
             <li>上传源皮肤文件（.hskin，即包含你想要复制的上滑/下滑设置的皮肤）</li>
             <li>上传目标皮肤文件（.hskin，即要被修改的皮肤）</li>
             <li>点击"开始处理"按钮</li>
-            <li>处理完成后，将自动下载修改后的皮肤文件</li>
+            <li>处理完成后，点击下载链接下载修改后的皮肤文件</li>
         </ol>
-        <p><strong>注意：</strong> 工具将同时处理 light 和 dark 目录下的 pinyin_26_portrait.yaml、pinyin_26_landscape.yaml、alphabetic_26_portrait.yaml 和 alphabetic_26_landscape.yaml 文件。</p>
+        <p><strong>注意：</strong> 工具会自动查找并匹配源皮肤和目标皮肤中的YAML文件，不再限于特定目录。匹配规则包括：完全相同路径、相同文件名、或类似布局文件名。处理过程中会在控制台输出详细的文件匹配信息。</p>
+        <p><strong>文件格式说明：</strong> .hskin 文件实际上是标准的 ZIP 格式压缩包，工具会正确处理文件格式，您可以直接使用修改后的 .hskin 文件。</p>
+        <p><strong>处理方法改进：</strong> 工具现在采用了双重处理方法，确保能够正确地提取和应用上滑/下滑动作。每个处理步骤会在控制台中输出详细的日志信息。</p>
         <p><strong>支持的样式：</strong></p>
         <ul>
             <li>上滑/下滑动作（swipeUpAction/swipeDownAction）</li>
@@ -110,660 +140,1370 @@
 
     <div class="container">
         <div class="file-upload">
-            <label for="source-file">源皮肤文件（含你需要的上滑/下滑设置）:</label>
-            <input type="file" id="source-file" accept=".hskin">
+            <label for="sourceFile">源皮肤文件（含你需要的上滑/下滑设置）:</label>
+            <input type="file" id="sourceFile" accept=".hskin">
         </div>
         
         <div class="file-upload">
-            <label for="target-file">目标皮肤文件（需要被修改的皮肤）:</label>
-            <input type="file" id="target-file" accept=".hskin">
+            <label for="targetFile">目标皮肤文件（需要被修改的皮肤）:</label>
+            <input type="file" id="targetFile" accept=".hskin">
         </div>
         
-        <button id="process-button" class="button" disabled>开始处理</button>
+        <button id="processButton" class="button" disabled>开始处理</button>
         
         <div id="status" class="hidden"></div>
-        <div id="log" class="hidden"></div>
+        <div id="log" class="log-area"></div>
+        <div id="resultArea" class="result-area"></div>
     </div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     <script>
-        const sourceFileInput = document.getElementById('source-file');
-        const targetFileInput = document.getElementById('target-file');
-        const processButton = document.getElementById('process-button');
-        const statusDiv = document.getElementById('status');
-        const logDiv = document.getElementById('log');
-        
-        let sourceFile = null;
-        let targetFile = null;
-        
-        // 监听文件选择变化
-        sourceFileInput.addEventListener('change', (e) => {
-            sourceFile = e.target.files[0];
-            checkFilesSelected();
-        });
-        
-        targetFileInput.addEventListener('change', (e) => {
-            targetFile = e.target.files[0];
-            checkFilesSelected();
-        });
-        
-        // 检查是否两个文件都已选择
-        function checkFilesSelected() {
-            if (sourceFile && targetFile) {
-                processButton.disabled = false;
-            } else {
-                processButton.disabled = true;
+        // 页面加载时初始化
+        document.addEventListener('DOMContentLoaded', () => {
+            const sourceFileInput = document.getElementById('sourceFile');
+            const targetFileInput = document.getElementById('targetFile');
+            const processButton = document.getElementById('processButton');
+            const statusElement = document.getElementById('status');
+            const resultElement = document.getElementById('resultArea');
+            const logElement = document.getElementById('log');
+            
+            let sourceFile = null;
+            let targetFile = null;
+            
+            // 监听文件选择变化
+            sourceFileInput.addEventListener('change', (e) => {
+                sourceFile = e.target.files[0];
+                checkFilesSelected();
+            });
+            
+            targetFileInput.addEventListener('change', (e) => {
+                targetFile = e.target.files[0];
+                checkFilesSelected();
+            });
+            
+            // 检查是否两个文件都已选择
+            function checkFilesSelected() {
+                if (sourceFile && targetFile) {
+                    processButton.disabled = false;
+                } else {
+                    processButton.disabled = true;
+                }
             }
-        }
-        
-        // 添加日志
-        function logMessage(message) {
-            console.log(message);
-        }
-        
-        // 处理按钮点击事件
-        processButton.addEventListener('click', async () => {
-            try {
-                statusDiv.className = 'progress';
-                statusDiv.textContent = '正在处理文件...';
-                statusDiv.classList.remove('hidden');
-                
-                // 解压两个hskin文件
-                const sourceZip = await JSZip.loadAsync(sourceFile);
-                const targetZip = await JSZip.loadAsync(targetFile);
-                
-                statusDiv.textContent = '正在分析文件...';
-                
-                // 要处理的文件路径模式
-                const filePatterns = [
-                    /light\/pinyin_26_portrait\.yaml$/i,
-					/light\/pinyin_26_landscape\.yaml$/i,
-					/light\/alphabetic_26_portrait\.yaml$/i,
-					/light\/alphabetic_26_landscape\.yaml$/i,
-                    /dark\/pinyin_26_portrait\.yaml$/i,
-                    /dark\/pinyin_26_landscape\.yaml$/i,
-					/dark\/alphabetic_26_portrait\.yaml$/i,
-					/dark\/alphabetic_26_landscape\.yaml$/i,
-                ];
-                
-                // 查找匹配的文件路径
-                const sourceYamlFiles = {};
-                const targetYamlFiles = {};
-                
-                // 遍历源皮肤文件查找YAML
-                for (const filePath in sourceZip.files) {
-                    for (let i = 0; i < filePatterns.length; i++) {
-                        if (filePatterns[i].test(filePath)) {
-                            sourceYamlFiles[i] = {
-                                path: filePath,
-                                content: await sourceZip.files[filePath].async('string')
-                            };
-                            logMessage(`找到源皮肤文件: ${filePath}`);
-                            break;
+            
+            // 添加日志
+            function logMessage(message) {
+                console.log(message);
+            }
+            
+            // 工具函数：将文件读取为文本
+            async function readFileAsText(file) {
+                return new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onload = event => resolve(event.target.result);
+                    reader.onerror = error => reject(error);
+                    reader.readAsText(file);
+                });
+            }
+            
+            // 将文件读取为ArrayBuffer
+            function readFileAsArrayBuffer(file) {
+                return new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onload = (event) => resolve(event.target.result);
+                    reader.onerror = (error) => reject(error);
+                    reader.readAsArrayBuffer(file);
+                });
+            }
+            
+            // 处理.hskin文件（实际是ZIP文件）
+            async function processHskinFile(sourceFile, targetFile) {
+                try {
+                    logMessage('开始处理ZIP文件...');
+                    
+                    // 读取源文件和目标文件为ArrayBuffer
+                    const sourceData = await readFileAsArrayBuffer(sourceFile);
+                    const targetData = await readFileAsArrayBuffer(targetFile);
+                    
+                    // 使用JSZip加载ZIP文件
+                    const sourceZip = new JSZip();
+                    const targetZip = new JSZip();
+                    
+                    await sourceZip.loadAsync(sourceData);
+                    await targetZip.loadAsync(targetData);
+                    
+                    // 显示ZIP文件内容以帮助调试
+                    logMessage('分析ZIP文件内容...');
+                    const sourceContents = listZipContents(sourceZip, '源皮肤');
+                    const targetContents = listZipContents(targetZip, '目标皮肤');
+                    
+                    // 收集所有YAML文件
+                    const sourceYamlFiles = sourceContents.yamlFiles;
+                    const targetYamlFiles = targetContents.yamlFiles;
+                    
+                    logMessage(`找到源皮肤中的YAML文件: ${sourceYamlFiles.length} 个`);
+                    logMessage(`找到目标皮肤中的YAML文件: ${targetYamlFiles.length} 个`);
+                    
+                    // 查找两个ZIP文件中都存在的YAML文件
+                    const commonYamlFiles = [];
+                    const sourceOnlyFiles = [];
+                    const targetOnlyFiles = [];
+                    
+                    // 匹配规则：
+                    // 1. 完全相同的路径
+                    // 2. 相同的文件名但路径不同
+                    // 3. 名称相似（去掉路径后）
+                    
+                    // 记录已匹配的文件
+                    const matchedSourceFiles = new Set();
+                    const matchedTargetFiles = new Set();
+                    
+                    // 1. 首先查找路径完全相同的文件
+                    for (const sourcePath of sourceYamlFiles) {
+                        if (targetYamlFiles.includes(sourcePath)) {
+                            commonYamlFiles.push({
+                                sourcePath: sourcePath,
+                                targetPath: sourcePath,
+                                matchType: '完全匹配'
+                            });
+                            matchedSourceFiles.add(sourcePath);
+                            matchedTargetFiles.add(sourcePath);
                         }
+                    }
+                    
+                    // 2. 查找文件名相同但路径不同的文件
+                    for (const sourcePath of sourceYamlFiles) {
+                        if (matchedSourceFiles.has(sourcePath)) continue;
+                        
+                        const sourceFileName = sourcePath.split('/').pop();
+                        
+                        for (const targetPath of targetYamlFiles) {
+                            if (matchedTargetFiles.has(targetPath)) continue;
+                            
+                            const targetFileName = targetPath.split('/').pop();
+                            
+                            if (sourceFileName === targetFileName) {
+                                commonYamlFiles.push({
+                                    sourcePath: sourcePath,
+                                    targetPath: targetPath,
+                                    matchType: '文件名匹配'
+                                });
+                                matchedSourceFiles.add(sourcePath);
+                                matchedTargetFiles.add(targetPath);
+                                break;
+                            }
+                        }
+                    }
+                    
+                    // 3. 查找名称相似的文件（例如可能有版本号差异）
+                    const keyboardLayouts = ['pinyin', 'alphabetic', 'handwriting'];
+                    const orientations = ['portrait', 'landscape'];
+                    
+                    for (const sourcePath of sourceYamlFiles) {
+                        if (matchedSourceFiles.has(sourcePath)) continue;
+                        
+                        // 检查是否为键盘布局文件
+                        let isLayoutFile = false;
+                        let matchedLayout = '';
+                        let matchedOrientation = '';
+                        
+                        for (const layout of keyboardLayouts) {
+                            if (sourcePath.includes(layout)) {
+                                isLayoutFile = true;
+                                matchedLayout = layout;
+                                break;
+                            }
+                        }
+                        
+                        if (!isLayoutFile) continue;
+                        
+                        for (const orientation of orientations) {
+                            if (sourcePath.includes(orientation)) {
+                                matchedOrientation = orientation;
+                                break;
+                            }
+                        }
+                        
+                        // 查找目标中相似的布局文件
+                        for (const targetPath of targetYamlFiles) {
+                            if (matchedTargetFiles.has(targetPath)) continue;
+                            
+                            if (targetPath.includes(matchedLayout) && 
+                                (matchedOrientation === '' || targetPath.includes(matchedOrientation))) {
+                                commonYamlFiles.push({
+                                    sourcePath: sourcePath,
+                                    targetPath: targetPath,
+                                    matchType: '布局匹配'
+                                });
+                                matchedSourceFiles.add(sourcePath);
+                                matchedTargetFiles.add(targetPath);
+                                break;
+                            }
+                        }
+                    }
+                    
+                    // 收集未匹配的文件
+                    for (const sourcePath of sourceYamlFiles) {
+                        if (!matchedSourceFiles.has(sourcePath)) {
+                            sourceOnlyFiles.push(sourcePath);
+                        }
+                    }
+                    
+                    for (const targetPath of targetYamlFiles) {
+                        if (!matchedTargetFiles.has(targetPath)) {
+                            targetOnlyFiles.push(targetPath);
+                        }
+                    }
+                    
+                    // 显示匹配结果
+                    logMessage(`找到 ${commonYamlFiles.length} 对匹配的YAML文件：`);
+                    commonYamlFiles.forEach((pair, index) => {
+                        logMessage(`${index+1}. [${pair.matchType}] 源: ${pair.sourcePath} -> 目标: ${pair.targetPath}`);
+                    });
+                    
+                    if (sourceOnlyFiles.length > 0) {
+                        logMessage(`源皮肤独有的 ${sourceOnlyFiles.length} 个YAML文件:`);
+                        sourceOnlyFiles.forEach(file => logMessage(` - ${file}`));
+                    }
+                    
+                    if (targetOnlyFiles.length > 0) {
+                        logMessage(`目标皮肤独有的 ${targetOnlyFiles.length} 个YAML文件:`);
+                        targetOnlyFiles.forEach(file => logMessage(` - ${file}`));
+                    }
+                    
+                    // 如果没有找到匹配的YAML文件，返回错误
+                    if (commonYamlFiles.length === 0) {
+                        logMessage('错误：未找到匹配的YAML文件，无法处理');
+                        throw new Error('未找到匹配的YAML文件');
+                    }
+                    
+                    // 处理每对匹配的YAML文件
+                    for (const filePair of commonYamlFiles) {
+                        const sourcePath = filePair.sourcePath;
+                        const targetPath = filePair.targetPath;
+                        
+                        logMessage(`处理文件对: 源 ${sourcePath} -> 目标 ${targetPath}`);
+                        
+                        // 读取YAML文件内容
+                        const sourceYaml = await sourceZip.file(sourcePath).async('string');
+                        const targetYaml = await targetZip.file(targetPath).async('string');
+                        
+                        // 尝试两种方法提取和应用按钮设置
+                        
+                        // 方法1：使用完整按钮定义方法
+                        logMessage(`方法1：使用完整按钮定义提取和应用...`);
+                        const buttonDefinitions = extractAllButtonDefinitions(sourceYaml);
+                        const updatedYaml1 = applyButtonDefinitions(targetYaml, buttonDefinitions);
+                        
+                        // 方法2：使用原有的提取设置方法
+                        logMessage(`方法2：使用原有方法提取和应用...`);
+                        const buttonSettings = extractButtonSettings(sourceYaml);
+                        const updatedYaml2 = updateTargetYaml(targetYaml, buttonSettings);
+                        
+                        // 如果方法1产生的YAML与原始YAML相同（可能是未能成功提取/应用），则使用方法2
+                        const useMethod1 = updatedYaml1 !== targetYaml;
+                        
+                        // 决定使用哪个方法的结果
+                        const finalYaml = useMethod1 ? updatedYaml1 : updatedYaml2;
+                        logMessage(`使用${useMethod1 ? '方法1（完整按钮定义）' : '方法2（常规方法）'}的结果`);
+                        
+                        // 验证按钮动作是否成功应用
+                        logMessage('验证按钮动作是否成功应用...');
+                        const changeResult = detectButtonChanges(targetYaml, finalYaml);
+                        logMessage(`验证结果: ${changeResult.changed} 个按钮有变化, ${changeResult.unchanged} 个按钮无变化`);
+                        
+                        // 将更新后的YAML写回到目标ZIP
+                        targetZip.file(targetPath, finalYaml);
+                    }
+                    
+                    // 生成修改后的ZIP文件
+                    logMessage('正在生成新的ZIP文件...');
+                    const updatedZipContent = await targetZip.generateAsync({
+                        type: 'blob',
+                        compression: 'DEFLATE',
+                        compressionOptions: {
+                            level: 6
+                        }
+                    });
+                    
+                    // 返回处理后的ZIP数据
+                    return updatedZipContent;
+                } catch (error) {
+                    console.error('处理ZIP文件时出错:', error);
+                    logMessage(`处理ZIP文件时出错: ${error.message}`);
+                    throw error;
+                }
+            }
+            
+            // 提取完整的按钮定义块
+            function extractFullButtonDefinition(yamlContent, buttonName) {
+                console.log(`提取按钮 ${buttonName} 的完整定义...`);
+                
+                // 使用更宽松的正则表达式匹配整个按钮定义块
+                const buttonPattern = new RegExp(`\\n(${buttonName}:[\\s\\S]*?)(?=\\n[a-zA-Z0-9_]+(?!Style|Action|Foreground|Background):|$)`, 'g');
+                const buttonMatch = buttonPattern.exec(yamlContent);
+                
+                if (!buttonMatch) {
+                    console.log(`未找到按钮 ${buttonName} 的定义`);
+                    return null;
+                }
+                
+                const buttonDefinition = buttonMatch[1];
+                console.log(`找到按钮 ${buttonName} 的定义，长度: ${buttonDefinition.length}字符`);
+                
+                // 检查按钮定义是否包含上滑/下滑动作
+                const hasSwipeUpAction = buttonDefinition.match(/\n\s*swipeUpAction:/i) !== null;
+                const hasSwipeDownAction = buttonDefinition.match(/\n\s*swipeDownAction:/i) !== null;
+                
+                console.log(`  包含swipeUpAction: ${hasSwipeUpAction}`);
+                console.log(`  包含swipeDownAction: ${hasSwipeDownAction}`);
+                
+                return {
+                    definition: buttonDefinition,
+                    hasSwipeUpAction: hasSwipeUpAction,
+                    hasSwipeDownAction: hasSwipeDownAction
+                };
+            }
+            
+            // 从源皮肤提取所有按钮的完整定义
+            function extractAllButtonDefinitions(yamlContent) {
+                console.log('提取所有按钮的完整定义...');
+                
+                const buttonDefinitions = {};
+                
+                // 查找所有按钮名称
+                const buttonNamesPattern = /\n([a-zA-Z]+Button):/g;
+                let buttonNameMatch;
+                const buttonNames = [];
+                
+                while ((buttonNameMatch = buttonNamesPattern.exec(yamlContent)) !== null) {
+                    buttonNames.push(buttonNameMatch[1]);
+                }
+                
+                console.log(`找到 ${buttonNames.length} 个按钮`);
+                
+                // 提取每个按钮的完整定义
+                for (const buttonName of buttonNames) {
+                    const buttonDef = extractFullButtonDefinition(yamlContent, buttonName);
+                    if (buttonDef) {
+                        buttonDefinitions[buttonName] = buttonDef;
                     }
                 }
                 
-                // 遍历目标皮肤文件查找YAML
-                for (const filePath in targetZip.files) {
-                    for (let i = 0; i < filePatterns.length; i++) {
-                        if (filePatterns[i].test(filePath)) {
-                            targetYamlFiles[i] = {
-                                path: filePath,
-                                content: await targetZip.files[filePath].async('string')
-                            };
-                            logMessage(`找到目标皮肤文件: ${filePath}`);
-                            break;
-                        }
+                return buttonDefinitions;
+            }
+            
+            // 将源皮肤中的按钮定义应用到目标皮肤
+            function applyButtonDefinitions(targetYaml, buttonDefinitions) {
+                console.log('开始应用按钮完整定义...');
+                let updatedYaml = targetYaml;
+                
+                try {
+                    // 确保有按钮定义需要处理
+                    const buttonCount = Object.keys(buttonDefinitions).length;
+                    if (buttonCount === 0) {
+                        console.log('没有找到任何按钮定义，无需更新');
+                        return targetYaml;
                     }
+                    
+                    console.log(`找到 ${buttonCount} 个按钮定义，开始应用`);
+                    
+                    // 在目标YAML中查找变量定义部分（在第一个按钮定义之前）
+                    const firstButtonPos = updatedYaml.search(/\n[a-zA-Z]+Button:/);
+                    
+                    // 处理每个按钮定义
+                    for (const [buttonName, buttonDef] of Object.entries(buttonDefinitions)) {
+                        if (!buttonDef.hasSwipeUpAction && !buttonDef.hasSwipeDownAction) {
+                            console.log(`按钮 ${buttonName} 没有上滑/下滑动作，跳过`);
+                            continue;
+                        }
+                        
+                        console.log(`处理按钮 ${buttonName}...`);
+                        
+                        // 检查目标YAML中是否存在此按钮
+                        const buttonPattern = new RegExp(`\\n(${buttonName}):[\\s\\S]*?(?=\\n[a-zA-Z0-9_]+(?!Style|Action|Foreground|Background):|$)`, 'g');
+                        const buttonMatch = buttonPattern.exec(updatedYaml);
+                        
+                        if (!buttonMatch) {
+                            console.log(`  在目标YAML中未找到按钮 ${buttonName}，跳过`);
+                            continue;
+                        }
+                        
+                        // 找到目标YAML中此按钮定义的位置
+                        let buttonIndex = buttonMatch.index;
+                        let originalButtonDefinition = buttonMatch[0];
+                        
+                        // 在目标按钮定义中查找上滑/下滑动作
+                        const targetHasSwipeUpAction = originalButtonDefinition.match(/\n\s*swipeUpAction:/i) !== null;
+                        const targetHasSwipeDownAction = originalButtonDefinition.match(/\n\s*swipeDownAction:/i) !== null;
+                        
+                        console.log(`  目标按钮状态: swipeUpAction=${targetHasSwipeUpAction}, swipeDownAction=${targetHasSwipeDownAction}`);
+                        console.log(`  源按钮状态: swipeUpAction=${buttonDef.hasSwipeUpAction}, swipeDownAction=${buttonDef.hasSwipeDownAction}`);
+                        
+                        // 提取上滑/下滑动作行
+                        let swipeUpActionLine = '';
+                        let swipeDownActionLine = '';
+                        
+                        if (buttonDef.hasSwipeUpAction) {
+                            const swipeUpMatch = buttonDef.definition.match(/(\n\s*swipeUpAction:[^\n]*)/i);
+                            if (swipeUpMatch) {
+                                swipeUpActionLine = swipeUpMatch[1];
+                                console.log(`  找到上滑动作行: ${swipeUpActionLine.trim()}`);
+                            }
+                        }
+                        
+                        if (buttonDef.hasSwipeDownAction) {
+                            const swipeDownMatch = buttonDef.definition.match(/(\n\s*swipeDownAction:[^\n]*)/i);
+                            if (swipeDownMatch) {
+                                swipeDownActionLine = swipeDownMatch[1];
+                                console.log(`  找到下滑动作行: ${swipeDownActionLine.trim()}`);
+                            }
+                        }
+                        
+                        // 准备更新目标按钮定义
+                        let updatedButtonDefinition = originalButtonDefinition;
+                        
+                        // 替换或添加上滑动作
+                        if (swipeUpActionLine) {
+                            if (targetHasSwipeUpAction) {
+                                // 替换现有的上滑动作
+                                const replacePattern = /(\n\s*swipeUpAction:)[^\n]*/i;
+                                updatedButtonDefinition = updatedButtonDefinition.replace(
+                                    replacePattern, 
+                                    swipeUpActionLine
+                                );
+                                console.log(`  更新上滑动作`);
+                            } else {
+                                // 添加上滑动作（插入到按钮定义的开头部分）
+                                const buttonStartPattern = new RegExp(`(\\n${buttonName}:[^\\n]*\\n)`, 'i');
+                                updatedButtonDefinition = updatedButtonDefinition.replace(
+                                    buttonStartPattern, 
+                                    `$1  ${swipeUpActionLine.trim()}\n`
+                                );
+                                console.log(`  添加上滑动作`);
+                            }
+                        }
+                        
+                        // 替换或添加下滑动作
+                        if (swipeDownActionLine) {
+                            if (targetHasSwipeDownAction) {
+                                // 替换现有的下滑动作
+                                const replacePattern = /(\n\s*swipeDownAction:)[^\n]*/i;
+                                updatedButtonDefinition = updatedButtonDefinition.replace(
+                                    replacePattern, 
+                                    swipeDownActionLine
+                                );
+                                console.log(`  更新下滑动作`);
+                            } else {
+                                // 添加下滑动作（如果已经有上滑动作，则添加到上滑动作后面）
+                                if (updatedButtonDefinition.match(/\n\s*swipeUpAction:/i)) {
+                                    const afterUpActionPattern = /(\n\s*swipeUpAction:[^\n]*\n)/i;
+                                    updatedButtonDefinition = updatedButtonDefinition.replace(
+                                        afterUpActionPattern, 
+                                        `$1  ${swipeDownActionLine.trim()}\n`
+                                    );
+                                } else {
+                                    // 否则添加到按钮定义的开头部分
+                                    const buttonStartPattern = new RegExp(`(\\n${buttonName}:[^\\n]*\\n)`, 'i');
+                                    updatedButtonDefinition = updatedButtonDefinition.replace(
+                                        buttonStartPattern, 
+                                        `$1  ${swipeDownActionLine.trim()}\n`
+                                    );
+                                }
+                                console.log(`  添加下滑动作`);
+                            }
+                        }
+                        
+                        // 将更新后的按钮定义替换回原YAML
+                        updatedYaml = updatedYaml.substring(0, buttonIndex) + 
+                                      updatedButtonDefinition + 
+                                      updatedYaml.substring(buttonIndex + originalButtonDefinition.length);
+                        
+                        console.log(`  按钮 ${buttonName} 处理完成`);
+                    }
+                    
+                    console.log('按钮定义应用完成');
+                    return updatedYaml;
+                } catch (error) {
+                    console.log(`应用按钮定义时出错: ${error.message}`);
+                    return updatedYaml;
+                }
+            }
+            
+            // 辅助函数：记录按钮动作状态
+            function logButtonActions(button, yaml) {
+                console.log(`按钮 ${button} 当前状态:`);
+                
+                // 提取按钮定义块
+                const buttonPattern = new RegExp(`\\n${button}:[\\s\\S]*?(?=\\n[a-zA-Z0-9_]+(?!Style|Action|Foreground|Background):|$)`, 'g');
+                const buttonMatch = buttonPattern.exec(yaml);
+                
+                if (!buttonMatch) {
+                    console.log(`  未找到按钮定义`);
+                    return;
                 }
                 
-                // 检查是否找到了文件
-                if (Object.keys(sourceYamlFiles).length === 0) {
-                    throw new Error('在源皮肤中找不到任何匹配的YAML文件');
+                const buttonContent = buttonMatch[0];
+                
+                // 检查上滑/下滑动作
+                const swipeUpActionPattern = /\n\s*swipeUpAction:[ \t]*([^\n]+)/i;
+                const swipeUpActionMatch = buttonContent.match(swipeUpActionPattern);
+                
+                const swipeDownActionPattern = /\n\s*swipeDownAction:[ \t]*([^\n]+)/i;
+                const swipeDownActionMatch = buttonContent.match(swipeDownActionPattern);
+                
+                console.log(`  swipeUpAction: ${swipeUpActionMatch ? swipeUpActionMatch[1] : '无'}`);
+                console.log(`  swipeDownAction: ${swipeDownActionMatch ? swipeDownActionMatch[1] : '无'}`);
+            }
+            
+            // 检查按钮动作是否成功应用
+            function detectButtonChanges(originalYaml, updatedYaml) {
+                console.log('验证按钮动作是否成功应用...');
+                
+                // 提取所有按钮名称
+                const buttonNamesPattern = /\n([a-zA-Z]+Button):/g;
+                let buttonNameMatch;
+                const buttonNames = [];
+                
+                while ((buttonNameMatch = buttonNamesPattern.exec(originalYaml)) !== null) {
+                    buttonNames.push(buttonNameMatch[1]);
                 }
                 
-                if (Object.keys(targetYamlFiles).length === 0) {
-                    throw new Error('在目标皮肤中找不到任何匹配的YAML文件');
-                }
+                let changeCount = 0;
+                let noChangeCount = 0;
                 
-                statusDiv.textContent = '正在提取按键设置...';
-                
-                // 处理每一对文件
-                for (const [index, sourceYamlFile] of Object.entries(sourceYamlFiles)) {
-                    if (!targetYamlFiles[index]) {
-                        logMessage(`警告: 目标皮肤中没有与 ${sourceYamlFile.path} 匹配的文件`);
+                for (const buttonName of buttonNames) {
+                    // 提取原始YAML中的按钮定义
+                    const originalButtonPattern = new RegExp(`\\n(${buttonName}:[\\s\\S]*?)(?=\\n[a-zA-Z0-9_]+(?!Style|Action|Foreground|Background):|$)`, 'g');
+                    const originalButtonMatch = originalButtonPattern.exec(originalYaml);
+                    
+                    // 提取更新后YAML中的按钮定义
+                    const updatedButtonPattern = new RegExp(`\\n(${buttonName}:[\\s\\S]*?)(?=\\n[a-zA-Z0-9_]+(?!Style|Action|Foreground|Background):|$)`, 'g');
+                    const updatedButtonMatch = updatedButtonPattern.exec(updatedYaml);
+                    
+                    if (!originalButtonMatch || !updatedButtonMatch) {
+                        console.log(`  按钮 ${buttonName} 无法在YAML中找到，跳过验证`);
                         continue;
                     }
                     
-                    logMessage(`处理文件: ${targetYamlFiles[index].path}`);
+                    const originalButtonDef = originalButtonMatch[1];
+                    const updatedButtonDef = updatedButtonMatch[1];
                     
-                    // 提取源皮肤中的swipeUpAction和swipeDownAction及样式
-                    const buttonSettings = extractButtonSettings(sourceYamlFile.content);
+                    // 检查上滑/下滑动作变化
+                    const originalUpAction = originalButtonDef.match(/\n\s*swipeUpAction:[^\n]*/i);
+                    const updatedUpAction = updatedButtonDef.match(/\n\s*swipeUpAction:[^\n]*/i);
                     
-                    // 检查目标皮肤中是否有相应的样式引用
-                    const styleReferences = checkStyleReferences(targetYamlFiles[index].content);
+                    const originalDownAction = originalButtonDef.match(/\n\s*swipeDownAction:[^\n]*/i);
+                    const updatedDownAction = updatedButtonDef.match(/\n\s*swipeDownAction:[^\n]*/i);
                     
-                    // 更新目标皮肤
-                    const updatedYaml = updateTargetYaml(
-                        targetYamlFiles[index].content, 
-                        buttonSettings, 
-                        styleReferences
-                    );
+                    // 比较动作是否有变化
+                    const upActionChanged = (!originalUpAction && updatedUpAction) || 
+                                           (originalUpAction && updatedUpAction && 
+                                            originalUpAction[0].trim() !== updatedUpAction[0].trim());
+                                            
+                    const downActionChanged = (!originalDownAction && updatedDownAction) || 
+                                             (originalDownAction && updatedDownAction && 
+                                              originalDownAction[0].trim() !== updatedDownAction[0].trim());
                     
-                    // 将更新后的YAML添加回目标zip
-                    targetZip.file(targetYamlFiles[index].path, updatedYaml);
-                    
-                    logMessage(`完成 ${targetYamlFiles[index].path} 的更新`);
+                    if (upActionChanged || downActionChanged) {
+                        console.log(`  按钮 ${buttonName} 动作已变化:`);
+                        if (upActionChanged) {
+                            console.log(`    上滑动作: ${originalUpAction ? originalUpAction[0].trim() : '无'} -> ${updatedUpAction ? updatedUpAction[0].trim() : '无'}`);
+                        }
+                        if (downActionChanged) {
+                            console.log(`    下滑动作: ${originalDownAction ? originalDownAction[0].trim() : '无'} -> ${updatedDownAction ? updatedDownAction[0].trim() : '无'}`);
+                        }
+                        changeCount++;
+                    } else {
+                        console.log(`  按钮 ${buttonName} 动作未变化`);
+                        noChangeCount++;
+                    }
                 }
                 
-                statusDiv.textContent = '正在生成新的皮肤文件...';
-                
-                // 生成新的hskin文件
-                const newHskinBlob = await targetZip.generateAsync({type: 'blob'});
-                
-                // 创建下载链接
-                const downloadLink = document.createElement('a');
-                downloadLink.href = URL.createObjectURL(newHskinBlob);
-                downloadLink.download = 'modified_' + targetFile.name;
-                
-                // 触发下载
-                downloadLink.click();
-                
-                statusDiv.className = 'success';
-                statusDiv.textContent = '处理完成！新的皮肤文件已下载。';
-                
-            } catch (error) {
-                console.error(error);
-                statusDiv.className = 'error';
-                statusDiv.textContent = '处理出错: ' + error.message;
-                logMessage(`错误: ${error.message}`);
+                console.log(`验证完成: ${changeCount} 个按钮有变化, ${noChangeCount} 个按钮无变化`);
+                return { changed: changeCount, unchanged: noChangeCount };
             }
+            
+            // 列出ZIP文件的内容
+            function listZipContents(zip, label) {
+                console.log(`==================== ${label} 文件内容开始 ====================`);
+                const files = Object.keys(zip.files);
+                console.log(`${label} 包含 ${files.length} 个文件/目录`);
+                
+                // 分类显示文件
+                const directories = [];
+                const yamlFiles = [];
+                const otherFiles = [];
+                
+                for (const path of files) {
+                    const file = zip.files[path];
+                    if (file.dir) {
+                        directories.push(path);
+                    } else if (path.endsWith('.yaml')) {
+                        yamlFiles.push(path);
+                    } else {
+                        otherFiles.push(path);
+                    }
+                }
+                
+                // 显示目录
+                console.log(`\n--- 目录 (${directories.length}) ---`);
+                directories.forEach((dir, index) => {
+                    console.log(`${index+1}. ${dir}`);
+                });
+                
+                // 显示YAML文件
+                console.log(`\n--- YAML文件 (${yamlFiles.length}) ---`);
+                yamlFiles.forEach((file, index) => {
+                    console.log(`${index+1}. ${file}`);
+                });
+                
+                // 显示其他文件
+                console.log(`\n--- 其他文件 (${otherFiles.length}) ---`);
+                otherFiles.forEach((file, index) => {
+                    console.log(`${index+1}. ${file}`);
+                });
+                
+                console.log(`==================== ${label} 文件内容结束 ====================\n`);
+                
+                return {
+                    directories,
+                    yamlFiles,
+                    otherFiles
+                };
+            }
+            
+            // 从源皮肤提取所有按钮设置（用于方法2）
+            function extractButtonSettings(yamlContent) {
+                console.log('从源皮肤提取所有按钮设置（方法2）');
+                
+                // 初始化结果对象
+                const buttonSettings = {
+                    styleReferences: {}, // 存储样式引用定义
+                    globalStyles: {},    // 存储全局样式定义
+                    variableDefinitions: {}, // 存储变量定义
+                    buttons: {}          // 存储按钮特定设置
+                };
+                
+                try {
+                    // 收集变量定义
+                    const varDefPattern = /^([a-zA-Z0-9_]+):\s*&([a-zA-Z0-9_]+)(?:\s+|\n)([\s\S]*?)(?=\n[a-zA-Z0-9_]+:|$)/gm;
+                    let varDefMatch;
+                    
+                    while ((varDefMatch = varDefPattern.exec(yamlContent)) !== null) {
+                        const [fullDef, varName, varId, content] = varDefMatch;
+                        buttonSettings.variableDefinitions[varId] = fullDef;
+                    }
+                    
+                    console.log(`找到了 ${Object.keys(buttonSettings.variableDefinitions).length} 个变量定义`);
+                    
+                    // 收集样式引用
+                    const styleRefPattern = /\n([a-zA-Z0-9_]+(?:ForegroundStyle|Style)):\s*&([a-zA-Z0-9_]+)(?:\s+|\n)([\s\S]*?)(?=\n[a-zA-Z0-9_]+:|$)/gm;
+                    let styleRefMatch;
+                    
+                    while ((styleRefMatch = styleRefPattern.exec(yamlContent)) !== null) {
+                        const [fullDef, styleName, styleId, content] = styleRefMatch;
+                        buttonSettings.styleReferences[styleId] = fullDef;
+                    }
+                    
+                    console.log(`找到了 ${Object.keys(buttonSettings.styleReferences).length} 个样式引用`);
+                    
+                    // 查找所有按钮配置块
+                    const buttonPattern = /\n([a-zA-Z]+Button):([\s\S]*?)(?=\n[a-zA-Z0-9_]+(?!Style|Action|Foreground|Background):|$)/g;
+                    let buttonMatch;
+                    
+                    // 用于从YAML内容中提取指定样式的辅助函数
+                    function extractStyle(content, button, styleName) {
+                        const pattern = new RegExp(`\\n(${button}${styleName}:[\\s\\S]*?)(?=\\n[a-zA-Z0-9_]+(?!\\s):|$)`, 'i');
+                        const match = content.match(pattern);
+                        return match ? match[1] : null;
+                    }
+                    
+                    while ((buttonMatch = buttonPattern.exec(yamlContent)) !== null) {
+                        const [fullMatch, button, buttonContent] = buttonMatch;
+                        console.log(`处理按钮: ${button}`);
+                        
+                        // 如果按钮不在结果对象中，则初始化
+                        if (!buttonSettings.buttons[button]) {
+                            buttonSettings.buttons[button] = {};
+                        }
+                        
+                        // 提取swipeUpAction - 改进版本，可以处理多行和花括号
+                        const swipeUpActionLinePattern = /\n\s*(swipeUpAction:[ \t]*)/i;
+                        const swipeUpActionLineMatch = buttonContent.match(swipeUpActionLinePattern);
+                        
+                        if (swipeUpActionLineMatch) {
+                            // 找到swipeUpAction行的起始位置
+                            const startIndex = buttonContent.indexOf(swipeUpActionLineMatch[0]) + swipeUpActionLineMatch[0].length;
+                            let endIndex = startIndex;
+                            let actionValue = '';
+                            
+                            // 收集动作的完整内容，直到下一个动作或按钮属性
+                            // 如果包含花括号，确保收集完整的花括号内容
+                            let hasBraces = false;
+                            let braceCount = 0;
+                            let lineEndPos = buttonContent.indexOf('\n', startIndex);
+                            
+                            // 先检查是否是简单的单行值（不包含花括号）
+                            if (lineEndPos !== -1) {
+                                const firstLine = buttonContent.substring(startIndex, lineEndPos);
+                                if (firstLine.includes('{')) {
+                                    hasBraces = true;
+                                    braceCount = 1; // 已找到第一个左花括号
+                                    
+                                    // 继续收集所有内容直到花括号闭合
+                                    endIndex = lineEndPos;
+                                    
+                                    while (endIndex < buttonContent.length) {
+                                        const nextLineEnd = buttonContent.indexOf('\n', endIndex + 1);
+                                        const nextLine = nextLineEnd !== -1 ? 
+                                            buttonContent.substring(endIndex + 1, nextLineEnd) : 
+                                            buttonContent.substring(endIndex + 1);
+                                        
+                                        // 计算花括号增减
+                                        for (const char of nextLine) {
+                                            if (char === '{') braceCount++;
+                                            if (char === '}') braceCount--;
+                                        }
+                                        
+                                        // 如果花括号已闭合，则结束收集
+                                        if (braceCount === 0) {
+                                            endIndex = nextLineEnd !== -1 ? nextLineEnd : buttonContent.length;
+                                            break;
+                                        }
+                                        
+                                        // 继续到下一行
+                                        endIndex = nextLineEnd !== -1 ? nextLineEnd : buttonContent.length;
+                                        
+                                        // 如果已到达内容末尾，退出循环
+                                        if (nextLineEnd === -1) break;
+                                    }
+                                } else {
+                                    // 简单的单行值
+                                    endIndex = lineEndPos;
+                                }
+                            } else {
+                                // 内容只有一行
+                                endIndex = buttonContent.length;
+                            }
+                            
+                            // 提取完整的动作值
+                            actionValue = buttonContent.substring(startIndex, endIndex).trim();
+                            
+                            // 如果有花括号，确保其完整性
+                            if (hasBraces && !checkBalancedBraces(actionValue)) {
+                                console.log(`  警告: swipeUpAction的花括号不平衡，可能提取不完整: ${actionValue}`);
+                            }
+                            
+                            // 保存完整的动作行，包括前缀
+                            const completeAction = (swipeUpActionLineMatch[1] + ' ' + actionValue).trim();
+                            buttonSettings.buttons[button].swipeUpAction = completeAction;
+                            console.log(`  找到swipeUpAction: ${completeAction}`);
+                            
+                            // 保存解析后的值，用于调试
+                            buttonSettings.buttons[button].swipeUpActionValue = actionValue;
+                        } else {
+                            console.log(`  未找到swipeUpAction`);
+                        }
+                        
+                        // 提取swipeDownAction - 改进版本，可以处理多行和花括号
+                        const swipeDownActionLinePattern = /\n\s*(swipeDownAction:[ \t]*)/i;
+                        const swipeDownActionLineMatch = buttonContent.match(swipeDownActionLinePattern);
+                        
+                        if (swipeDownActionLineMatch) {
+                            // 找到swipeDownAction行的起始位置
+                            const startIndex = buttonContent.indexOf(swipeDownActionLineMatch[0]) + swipeDownActionLineMatch[0].length;
+                            let endIndex = startIndex;
+                            let actionValue = '';
+                            
+                            // 收集动作的完整内容，直到下一个动作或按钮属性
+                            // 如果包含花括号，确保收集完整的花括号内容
+                            let hasBraces = false;
+                            let braceCount = 0;
+                            let lineEndPos = buttonContent.indexOf('\n', startIndex);
+                            
+                            // 先检查是否是简单的单行值（不包含花括号）
+                            if (lineEndPos !== -1) {
+                                const firstLine = buttonContent.substring(startIndex, lineEndPos);
+                                if (firstLine.includes('{')) {
+                                    hasBraces = true;
+                                    braceCount = 1; // 已找到第一个左花括号
+                                    
+                                    // 继续收集所有内容直到花括号闭合
+                                    endIndex = lineEndPos;
+                                    
+                                    while (endIndex < buttonContent.length) {
+                                        const nextLineEnd = buttonContent.indexOf('\n', endIndex + 1);
+                                        const nextLine = nextLineEnd !== -1 ? 
+                                            buttonContent.substring(endIndex + 1, nextLineEnd) : 
+                                            buttonContent.substring(endIndex + 1);
+                                        
+                                        // 计算花括号增减
+                                        for (const char of nextLine) {
+                                            if (char === '{') braceCount++;
+                                            if (char === '}') braceCount--;
+                                        }
+                                        
+                                        // 如果花括号已闭合，则结束收集
+                                        if (braceCount === 0) {
+                                            endIndex = nextLineEnd !== -1 ? nextLineEnd : buttonContent.length;
+                                            break;
+                                        }
+                                        
+                                        // 继续到下一行
+                                        endIndex = nextLineEnd !== -1 ? nextLineEnd : buttonContent.length;
+                                        
+                                        // 如果已到达内容末尾，退出循环
+                                        if (nextLineEnd === -1) break;
+                                    }
+                                } else {
+                                    // 简单的单行值
+                                    endIndex = lineEndPos;
+                                }
+                            } else {
+                                // 内容只有一行
+                                endIndex = buttonContent.length;
+                            }
+                            
+                            // 提取完整的动作值
+                            actionValue = buttonContent.substring(startIndex, endIndex).trim();
+                            
+                            // 如果有花括号，确保其完整性
+                            if (hasBraces && !checkBalancedBraces(actionValue)) {
+                                console.log(`  警告: swipeDownAction的花括号不平衡，可能提取不完整: ${actionValue}`);
+                            }
+                            
+                            // 保存完整的动作行，包括前缀
+                            const completeAction = (swipeDownActionLineMatch[1] + ' ' + actionValue).trim();
+                            buttonSettings.buttons[button].swipeDownAction = completeAction;
+                            console.log(`  找到swipeDownAction: ${completeAction}`);
+                            
+                            // 保存解析后的值，用于调试
+                            buttonSettings.buttons[button].swipeDownActionValue = actionValue;
+                        } else {
+                            console.log(`  未找到swipeDownAction`);
+                        }
+                        
+                        // 提取按钮前缀（去掉Button后缀）
+                        const buttonPrefix = button.replace(/Button$/, '');
+                        
+                        // 提取所有可能的样式
+                        const foregroundStyleSuffixes = [
+                            'UpForegroundStyle',
+                            'DownForegroundStyle',
+                            'SwipeUpHintForegroundStyle',
+                            'SwipeDownHintForegroundStyle',
+                            'HoldSymbolsStyle'
+                        ];
+                        
+                        // 处理每种样式类型
+                        foregroundStyleSuffixes.forEach(suffix => {
+                            const style = extractStyle(yamlContent, buttonPrefix, suffix);
+                            if (style) {
+                                // 转换样式名为camelCase，用作对象属性
+                                const camelCaseName = suffix.charAt(0).toLowerCase() + suffix.slice(1);
+                                buttonSettings.buttons[button][camelCaseName] = style;
+                                console.log(`  找到${suffix}: ${style.substring(0, 50)}...`);
+                            }
+                        });
+                        
+                        // 特殊处理HoldSymbolsForegroundStyle，可能有多个
+                        const holdSymbolsPattern = new RegExp(`\\n(${buttonPrefix}HoldSymbolsForegroundStyle\d*:[\\s\\S]*?)(?=\\n[a-zA-Z0-9_]+(?!\\s):|$)`, 'g');
+                        const holdSymbolsStyles = [];
+                        let holdSymbolsMatch;
+                        
+                        while ((holdSymbolsMatch = holdSymbolsPattern.exec(yamlContent)) !== null) {
+                            const style = holdSymbolsMatch[1];
+                            holdSymbolsStyles.push(style);
+                            console.log(`  找到HoldSymbolsForegroundStyle: ${style.substring(0, 50)}...`);
+                            
+                            // 将样式也存储在对象中，以便updateTargetYaml函数能正确处理
+                            const index = holdSymbolsStyles.length - 1;
+                            buttonSettings.buttons[button][`holdSymbolsForegroundStyles_${index}`] = style;
+                        }
+                        
+                        if (holdSymbolsStyles.length > 0) {
+                            buttonSettings.buttons[button].holdSymbolsForegroundStyles = holdSymbolsStyles;
+                            console.log(`  总共找到 ${holdSymbolsStyles.length} 个HoldSymbolsForegroundStyle`);
+                        }
+                    }
+                    
+                    return buttonSettings;
+                } catch (error) {
+                    console.log(`提取按钮设置时出错: ${error.message}`);
+                    return buttonSettings;
+                }
+            }
+            
+            // 更新目标皮肤的YAML（用于方法2）
+            function updateTargetYaml(targetYaml, buttonSettings) {
+                console.log('开始更新目标YAML（方法2）');
+                let updatedYaml = targetYaml;
+                
+                try {
+                    // 收集目标YAML中的变量定义
+                    const varDefPattern = /^([a-zA-Z0-9_]+):\s*&([a-zA-Z0-9_]+)(?:\s+|\n)([\s\S]*?)(?=\n[a-zA-Z0-9_]+:|$)/gm;
+                    const existingVariables = {};
+                    let varMatch;
+                    
+                    while ((varMatch = varDefPattern.exec(targetYaml)) !== null) {
+                        const [, , varId] = varMatch;
+                        existingVariables[varId] = true;
+                    }
+                    
+                    // 收集目标YAML中的样式引用
+                    const styleRefPattern = /\n([a-zA-Z0-9_]+(?:ForegroundStyle|Style)):\s*&([a-zA-Z0-9_]+)(?:\s+|\n)([\s\S]*?)(?=\n[a-zA-Z0-9_]+:|$)/gm;
+                    const existingStyleRefs = {};
+                    let styleRefMatch;
+                    
+                    while ((styleRefMatch = styleRefPattern.exec(targetYaml)) !== null) {
+                        const [, , styleId] = styleRefMatch;
+                        existingStyleRefs[styleId] = true;
+                    }
+                    
+                    // 添加源皮肤中的变量定义（如果目标皮肤中不存在）
+                    for (const [varId, varDef] of Object.entries(buttonSettings.variableDefinitions)) {
+                        if (!existingVariables[varId]) {
+                            console.log(`添加变量定义: ${varId}`);
+                            // 在第一个按钮定义之前插入
+                            const firstButtonPos = updatedYaml.search(/\n[a-zA-Z]+Button:/);
+                            if (firstButtonPos !== -1) {
+                                updatedYaml = updatedYaml.substring(0, firstButtonPos) + '\n' + varDef + updatedYaml.substring(firstButtonPos);
+                            } else {
+                                updatedYaml += '\n' + varDef;
+                            }
+                        }
+                    }
+                    
+                    // 添加源皮肤中的样式引用（如果目标皮肤中不存在）
+                    for (const [styleId, styleDef] of Object.entries(buttonSettings.styleReferences)) {
+                        if (!existingStyleRefs[styleId]) {
+                            console.log(`添加样式引用: ${styleId}`);
+                            // 在第一个按钮定义之前插入
+                            const firstButtonPos = updatedYaml.search(/\n[a-zA-Z]+Button:/);
+                            if (firstButtonPos !== -1) {
+                                updatedYaml = updatedYaml.substring(0, firstButtonPos) + '\n' + styleDef + updatedYaml.substring(firstButtonPos);
+                            } else {
+                                updatedYaml += '\n' + styleDef;
+                            }
+                        }
+                    }
+                    
+                    // 处理按钮设置
+                    for (const [button, settings] of Object.entries(buttonSettings.buttons)) {
+                        console.log(`更新按钮: ${button}`);
+                        
+                        // 检查按钮是否存在于目标YAML中 - 使用更宽松的匹配模式
+                        const buttonPattern = new RegExp(`\\n(${button}):(.*?)(?=\\n[a-zA-Z0-9_]+:)`, 'gs');
+                        const buttonMatch = buttonPattern.exec(updatedYaml);
+                        
+                        // 如果上面的匹配失败，尝试匹配到文件末尾
+                        if (!buttonMatch) {
+                            const altButtonPattern = new RegExp(`\\n(${button}):(.*?)$`, 'gs');
+                            const altButtonMatch = altButtonPattern.exec(updatedYaml);
+                            
+                            if (!altButtonMatch) {
+                                console.log(`  在目标YAML中未找到按钮 ${button}`);
+                                continue;
+                            }
+                            
+                            console.log(`  使用替代模式找到按钮 ${button}`);
+                        } else {
+                            console.log(`  在目标YAML中找到按钮 ${button}`);
+                        }
+                        
+                        // 记录处理前的按钮动作状态
+                        logButtonActions(button, updatedYaml);
+                        
+                        // 处理swipeUpAction
+                        if (settings.swipeUpAction) {
+                            console.log(`  准备更新swipeUpAction: ${settings.swipeUpAction}`);
+                            
+                            // 不再使用split提取动作值，而是使用完整的动作行
+                            const completeAction = settings.swipeUpAction;
+                            
+                            // 首先尝试更新现有的swipeUpAction
+                            const swipeUpLinePattern = /(\n\s*swipeUpAction:)[ \t]*(.*?)(?=\n\s*\w+:|$)/s;
+                            const swipeUpMatch = updatedYaml.match(new RegExp(`\\n${button}:[\\s\\S]*?${swipeUpLinePattern.source}`, 's'));
+                            
+                            console.log(`  检查是否存在swipeUpAction`);
+                            if (swipeUpMatch) {
+                                console.log(`  更新现有的swipeUpAction`);
+                                
+                                // 提取动作前缀（swipeUpAction:）和缩进
+                                const actionPrefix = swipeUpMatch[2]; // 捕获组(\n\s*swipeUpAction:)
+                                const indentation = actionPrefix.match(/\n(\s*)/)[1]; // 提取缩进
+                                
+                                // 分割动作行，保持原始格式
+                                const actionLines = completeAction.split('\n');
+                                const formattedAction = actionLines[0].replace(/^swipeUpAction:/, '') + 
+                                    (actionLines.length > 1 ? 
+                                        '\n' + actionLines.slice(1).map(line => indentation + line).join('\n') : 
+                                        '');
+                                
+                                // 将现有的swipeUpAction替换为新的
+                                updatedYaml = updatedYaml.replace(
+                                    new RegExp(`(\\n${button}:[\\s\\S]*?)${swipeUpLinePattern.source}`, 's'),
+                                    `$1${actionPrefix}${formattedAction}`
+                                );
+                                
+                                console.log(`  已更新swipeUpAction`);
+                            } else {
+                                console.log(`  按钮中不存在swipeUpAction，添加新的`);
+                                
+                                // 查找按钮定义的结束位置
+                                const buttonContentEndMatch = new RegExp(`(\\n${button}:[^\\n]*(?:\\n\\s+[^\\n]*)*)(\\n)`, 'g').exec(updatedYaml);
+                                
+                                if (buttonContentEndMatch) {
+                                    const insertPos = buttonContentEndMatch.index + buttonContentEndMatch[1].length;
+                                    const before = updatedYaml.substring(0, insertPos);
+                                    const after = updatedYaml.substring(insertPos);
+                                    
+                                    // 提取缩进模式
+                                    let indentation = '  '; // 默认缩进
+                                    const indentMatch = buttonContentEndMatch[1].match(/\n(\s+)/);
+                                    if (indentMatch) {
+                                        indentation = indentMatch[1];
+                                    }
+                                    
+                                    // 分割动作行，按正确缩进格式化
+                                    const actionLines = completeAction.split('\n');
+                                    const formattedAction = actionLines[0] + 
+                                        (actionLines.length > 1 ? 
+                                            '\n' + actionLines.slice(1).map(line => indentation + line).join('\n') : 
+                                            '');
+                                    
+                                    console.log(`  在位置 ${insertPos} 添加swipeUpAction`);
+                                    updatedYaml = before + `\n${indentation}${formattedAction}` + after;
+                                } else {
+                                    console.log(`  无法确定插入点，使用替代方法`);
+                                    
+                                    // 尝试使用替代方法，在按钮定义行后添加
+                                    const buttonLinePattern = new RegExp(`(\\n${button}:[^\\n]*\\n)`, 'g');
+                                    const buttonLineMatch = buttonLinePattern.exec(updatedYaml);
+                                    
+                                    if (buttonLineMatch) {
+                                        const insertPos = buttonLineMatch.index + buttonLineMatch[1].length;
+                                        const before = updatedYaml.substring(0, insertPos);
+                                        const after = updatedYaml.substring(insertPos);
+                                        
+                                        // 分割动作行，保持原始格式
+                                        const actionLines = completeAction.split('\n');
+                                        const formattedAction = actionLines[0] + 
+                                            (actionLines.length > 1 ? 
+                                                '\n  ' + actionLines.slice(1).map(line => '  ' + line).join('\n') : 
+                                                '');
+                                        
+                                        updatedYaml = before + `  ${formattedAction}\n` + after;
+                                    }
+                                }
+                            }
+                        }
+                        
+                        // 处理swipeDownAction
+                        if (settings.swipeDownAction) {
+                            console.log(`  准备更新swipeDownAction: ${settings.swipeDownAction}`);
+                            
+                            // 不再使用split提取动作值，而是使用完整的动作行
+                            const completeAction = settings.swipeDownAction;
+                            
+                            // 首先尝试更新现有的swipeDownAction
+                            const swipeDownLinePattern = /(\n\s*swipeDownAction:)[ \t]*(.*?)(?=\n\s*\w+:|$)/s;
+                            const swipeDownMatch = updatedYaml.match(new RegExp(`\\n${button}:[\\s\\S]*?${swipeDownLinePattern.source}`, 's'));
+                            
+                            console.log(`  检查是否存在swipeDownAction`);
+                            if (swipeDownMatch) {
+                                console.log(`  更新现有的swipeDownAction`);
+                                
+                                // 提取动作前缀（swipeDownAction:）和缩进
+                                const actionPrefix = swipeDownMatch[2]; // 捕获组(\n\s*swipeDownAction:)
+                                const indentation = actionPrefix.match(/\n(\s*)/)[1]; // 提取缩进
+                                
+                                // 分割动作行，保持原始格式
+                                const actionLines = completeAction.split('\n');
+                                const formattedAction = actionLines[0].replace(/^swipeDownAction:/, '') + 
+                                    (actionLines.length > 1 ? 
+                                        '\n' + actionLines.slice(1).map(line => indentation + line).join('\n') : 
+                                        '');
+                                
+                                // 将现有的swipeDownAction替换为新的
+                                updatedYaml = updatedYaml.replace(
+                                    new RegExp(`(\\n${button}:[\\s\\S]*?)${swipeDownLinePattern.source}`, 's'),
+                                    `$1${actionPrefix}${formattedAction}`
+                                );
+                                
+                                console.log(`  已更新swipeDownAction`);
+                            } else {
+                                console.log(`  按钮中不存在swipeDownAction，添加新的`);
+                                
+                                // 查找按钮定义的结束位置
+                                const buttonContentEndMatch = new RegExp(`(\\n${button}:[^\\n]*(?:\\n\\s+[^\\n]*)*)(\\n)`, 'g').exec(updatedYaml);
+                                
+                                if (buttonContentEndMatch) {
+                                    const insertPos = buttonContentEndMatch.index + buttonContentEndMatch[1].length;
+                                    const before = updatedYaml.substring(0, insertPos);
+                                    const after = updatedYaml.substring(insertPos);
+                                    
+                                    // 提取缩进模式
+                                    let indentation = '  '; // 默认缩进
+                                    const indentMatch = buttonContentEndMatch[1].match(/\n(\s+)/);
+                                    if (indentMatch) {
+                                        indentation = indentMatch[1];
+                                    }
+                                    
+                                    // 分割动作行，按正确缩进格式化
+                                    const actionLines = completeAction.split('\n');
+                                    const formattedAction = actionLines[0] + 
+                                        (actionLines.length > 1 ? 
+                                            '\n' + actionLines.slice(1).map(line => indentation + line).join('\n') : 
+                                            '');
+                                    
+                                    console.log(`  在位置 ${insertPos} 添加swipeDownAction`);
+                                    updatedYaml = before + `\n${indentation}${formattedAction}` + after;
+                                } else {
+                                    console.log(`  无法确定插入点，使用替代方法`);
+                                    
+                                    // 尝试使用替代方法，在按钮定义行后添加
+                                    const buttonLinePattern = new RegExp(`(\\n${button}:[^\\n]*\\n)`, 'g');
+                                    const buttonLineMatch = buttonLinePattern.exec(updatedYaml);
+                                    
+                                    if (buttonLineMatch) {
+                                        const insertPos = buttonLineMatch.index + buttonLineMatch[1].length;
+                                        const before = updatedYaml.substring(0, insertPos);
+                                        const after = updatedYaml.substring(insertPos);
+                                        
+                                        // 分割动作行，保持原始格式
+                                        const actionLines = completeAction.split('\n');
+                                        const formattedAction = actionLines[0] + 
+                                            (actionLines.length > 1 ? 
+                                                '\n  ' + actionLines.slice(1).map(line => '  ' + line).join('\n') : 
+                                                '');
+                                        
+                                        updatedYaml = before + `  ${formattedAction}\n` + after;
+                                    }
+                                }
+                            }
+                        }
+                        
+                        // 处理各种前景样式
+                        const foregroundStyleSuffixes = [
+                            'upForegroundStyle',
+                            'downForegroundStyle',
+                            'swipeUpHintForegroundStyle',
+                            'swipeDownHintForegroundStyle',
+                            'holdSymbolsStyle'
+                        ];
+                        
+                        // 从按钮名中获取前缀（去掉Button后缀）
+                        const buttonPrefix = button.replace(/Button$/, '');
+                        
+                        // 处理每种样式
+                        foregroundStyleSuffixes.forEach(styleSuffix => {
+                            if (settings[styleSuffix]) {
+                                // 转换为YAML中的样式名称
+                                const yamlStyleName = buttonPrefix + styleSuffix.charAt(0).toUpperCase() + styleSuffix.slice(1);
+                                
+                                // 检查样式是否已存在
+                                const styleExists = updatedYaml.includes(`\n${yamlStyleName}:`);
+                                
+                                // 检查样式是否引用了其他样式
+                                const refMatch = settings[styleSuffix].match(/:\s*\*([a-zA-Z0-9_]+)/);
+                                
+                                if (refMatch) {
+                                    const refId = refMatch[1];
+                                    // 检查引用的样式是否存在
+                                    if (!existingStyleRefs[refId] && !buttonSettings.styleReferences[refId]) {
+                                        console.log(`  样式引用 ${refId} 不存在，移除引用`);
+                                        // 如果引用不存在，移除引用并使用默认样式内容
+                                        const defaultStyle = `${yamlStyleName}:\n  foreground: '#FFFFFF'`;
+                                        
+                                        if (styleExists) {
+                                            const stylePattern = new RegExp(`\\n${yamlStyleName}:[^\\n]*(?:\\n\\s+[^\\n]*)*`, 'g');
+                                            updatedYaml = updatedYaml.replace(stylePattern, `\n${defaultStyle}`);
+                                        } else {
+                                            // 在按钮定义之前添加样式
+                                            const buttonPos = updatedYaml.search(new RegExp(`\\n${button}:`));
+                                            if (buttonPos !== -1) {
+                                                updatedYaml = updatedYaml.substring(0, buttonPos) + `\n${defaultStyle}` + updatedYaml.substring(buttonPos);
+                                            }
+                                        }
+                                    } else {
+                                        console.log(`  保留样式引用 ${refId}`);
+                                    }
+                                } else {
+                                    // 更新或添加样式内容
+                                    if (styleExists) {
+                                        console.log(`  更新样式 ${yamlStyleName}`);
+                                        const stylePattern = new RegExp(`\\n${yamlStyleName}:[^\\n]*(?:\\n\\s+[^\\n]*)*`, 'g');
+                                        updatedYaml = updatedYaml.replace(stylePattern, `\n${settings[styleSuffix]}`);
+                                    } else {
+                                        console.log(`  添加样式 ${yamlStyleName}`);
+                                        // 在按钮定义之前添加样式
+                                        const buttonPos = updatedYaml.search(new RegExp(`\\n${button}:`));
+                                        if (buttonPos !== -1) {
+                                            updatedYaml = updatedYaml.substring(0, buttonPos) + `\n${settings[styleSuffix]}` + updatedYaml.substring(buttonPos);
+                                        }
+                                    }
+                                }
+                            }
+                        });
+                        
+                        // 特殊处理holdSymbolsForegroundStyles
+                        if (settings.holdSymbolsForegroundStyles) {
+                            console.log(`  处理 ${settings.holdSymbolsForegroundStyles.length} 个HoldSymbolsForegroundStyle`);
+                            
+                            for (let i = 0; i < settings.holdSymbolsForegroundStyles.length; i++) {
+                                const styleKey = `holdSymbolsForegroundStyles_${i}`;
+                                const style = settings[styleKey];
+                                if (!style) continue;
+                                
+                                // 从样式内容中提取样式名
+                                const styleNameMatch = style.match(/^([a-zA-Z0-9_]+HoldSymbolsForegroundStyle\d*):/);
+                                if (!styleNameMatch) continue;
+                                
+                                const styleName = styleNameMatch[1];
+                                console.log(`  处理样式 ${styleName}`);
+                                
+                                // 检查样式是否已存在
+                                const styleExists = updatedYaml.includes(`\n${styleName}:`);
+                                
+                                // 检查样式是否引用了其他样式
+                                const refMatch = style.match(/:\s*\*([a-zA-Z0-9_]+)/);
+                                
+                                if (refMatch) {
+                                    const refId = refMatch[1];
+                                    // 检查引用的样式是否存在
+                                    if (!existingStyleRefs[refId] && !buttonSettings.styleReferences[refId]) {
+                                        console.log(`  样式引用 ${refId} 不存在，移除引用`);
+                                        // 如果引用不存在，移除引用并使用默认样式内容
+                                        const defaultStyle = `${styleName}:\n  foreground: '#FFFFFF'`;
+                                        
+                                        if (styleExists) {
+                                            const stylePattern = new RegExp(`\\n${styleName}:[^\\n]*(?:\\n\\s+[^\\n]*)*`, 'g');
+                                            updatedYaml = updatedYaml.replace(stylePattern, `\n${defaultStyle}`);
+                                        } else {
+                                            // 在按钮定义之前添加样式
+                                            const buttonPos = updatedYaml.search(new RegExp(`\\n${button}:`));
+                                            if (buttonPos !== -1) {
+                                                updatedYaml = updatedYaml.substring(0, buttonPos) + `\n${defaultStyle}` + updatedYaml.substring(buttonPos);
+                                            }
+                                        }
+                                    } else {
+                                        console.log(`  保留样式引用 ${refId}`);
+                                    }
+                                } else {
+                                    // 更新或添加样式内容
+                                    if (styleExists) {
+                                        console.log(`  更新样式 ${styleName}`);
+                                        const stylePattern = new RegExp(`\\n${styleName}:[^\\n]*(?:\\n\\s+[^\\n]*)*`, 'g');
+                                        updatedYaml = updatedYaml.replace(stylePattern, `\n${style}`);
+                                    } else {
+                                        console.log(`  添加样式 ${styleName}`);
+                                        // 在按钮定义之前添加样式
+                                        const buttonPos = updatedYaml.search(new RegExp(`\\n${button}:`));
+                                        if (buttonPos !== -1) {
+                                            updatedYaml = updatedYaml.substring(0, buttonPos) + `\n${style}` + updatedYaml.substring(buttonPos);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    
+                    // 记录处理后的按钮动作状态
+                    console.log(`\n===== 处理后按钮状态验证 =====`);
+                    for (const [button, settings] of Object.entries(buttonSettings.buttons)) {
+                        if (settings.swipeUpAction || settings.swipeDownAction) {
+                            logButtonActions(button, updatedYaml);
+                        }
+                    }
+                    console.log(`===== 验证结束 =====\n`);
+                    
+                    console.log('YAML更新完成');
+                    return updatedYaml;
+                } catch (error) {
+                    console.log(`更新目标YAML时出错: ${error.message}`);
+                    return updatedYaml;
+                }
+            }
+            
+            // 检查字符串中的花括号是否平衡配对
+            function checkBalancedBraces(str) {
+                const stack = [];
+                
+                for (let i = 0; i < str.length; i++) {
+                    if (str[i] === '{') {
+                        stack.push('{');
+                    } else if (str[i] === '}') {
+                        if (stack.length === 0) {
+                            return false; // 右花括号多于左花括号
+                        }
+                        stack.pop();
+                    }
+                }
+                
+                return stack.length === 0; // 如果栈为空，则花括号平衡
+            }
+            
+            // 执行处理
+            document.getElementById('processButton').addEventListener('click', async function() {
+                try {
+                    const sourceFile = document.getElementById('sourceFile').files[0];
+                    const targetFile = document.getElementById('targetFile').files[0];
+                    
+                    if (!sourceFile || !targetFile) {
+                        alert('请选择源皮肤文件和目标皮肤文件');
+                        return;
+                    }
+                    
+                    // 更新处理状态
+                    const statusElement = document.getElementById('status');
+                    statusElement.className = 'progress';
+                    statusElement.textContent = '正在处理文件，请稍候...';
+                    statusElement.classList.remove('hidden');
+                    
+                    // 清除之前的下载链接
+                    const prevLink = document.querySelector('.download-button');
+                    if (prevLink) {
+                        prevLink.remove();
+                    }
+                    
+                    logMessage('开始处理...');
+                    logMessage(`源皮肤: ${sourceFile.name}`);
+                    logMessage(`目标皮肤: ${targetFile.name}`);
+                    
+                    // 处理.hskin文件（实际是ZIP文件）
+                    const updatedZipContent = await processHskinFile(sourceFile, targetFile);
+                    
+                    // 提供下载链接
+                    const blob = new Blob([updatedZipContent], { type: 'application/zip' });
+                    const url = URL.createObjectURL(blob);
+                    const downloadLink = document.createElement('a');
+                    downloadLink.href = url;
+                    downloadLink.download = `modified_${targetFile.name}`;
+                    downloadLink.textContent = '下载修改后的皮肤文件';
+                    downloadLink.className = 'download-button';
+                    
+                    document.getElementById('resultArea').appendChild(downloadLink);
+                    
+                    // 更新处理状态
+                    statusElement.className = 'success';
+                    statusElement.textContent = '处理成功！请点击下方链接下载修改后的皮肤文件。';
+                    
+                    logMessage('处理完成！点击上方链接下载修改后的文件。');
+                    
+                } catch (error) {
+                    console.error('处理出错:', error);
+                    
+                    // 更新处理状态
+                    const statusElement = document.getElementById('status');
+                    statusElement.className = 'error';
+                    statusElement.textContent = `处理出错: ${error.message}`;
+                    statusElement.classList.remove('hidden');
+                    
+                    logMessage(`处理出错: ${error.message}`);
+                }
+            });
         });
-        
-        // 提取源皮肤中的按键设置
-        function extractButtonSettings(yaml) {
-            const buttonSettings = {};
-            const buttonNames = [
-                'qButton', 'wButton', 'eButton', 'rButton', 'tButton', 'yButton', 
-                'uButton', 'iButton', 'oButton', 'pButton', 'aButton', 'sButton', 
-                'dButton', 'fButton', 'gButton', 'hButton', 'jButton', 'kButton', 
-                'lButton', 'zButton', 'xButton', 'cButton', 'vButton', 'bButton', 
-                'nButton', 'mButton', 'backspaceButton', '123Button', 'spaceButton',
-                'enterButton', 'EnCnButton', 'symbolButton', 'dotButton'
-            ];
-            
-            logMessage('开始提取按键设置...');
-
-            // 检查和处理全局定义的样式（可能存在重复）
-            const globalStyleNames = [
-                'ButtonSwipeUpHintForeground',
-                'cnenButtonForeground1',
-                'ButtonHintForeground',
-                'ButtonHoldSymbolsOfqForeground'
-            ];
-
-            // 处理全局样式 - 只提取第一个匹配项
-            buttonSettings.globalStyles = {};
-            for (const styleName of globalStyleNames) {
-                // 使用更严格的正则表达式匹配
-                const styleRegex = new RegExp(`^${styleName}:[\\s\\S]*?(?=\\n[a-zA-Z][a-zA-Z0-9]*:)`, 'm');
-                const matches = yaml.match(new RegExp(`^${styleName}:.*$`, 'gm'));
-                
-                if (matches && matches.length > 0) {
-                    // 只取第一个匹配的定义
-                    const firstMatchPos = yaml.indexOf(matches[0]);
-                    const endPos = findStyleEndPosition(yaml, firstMatchPos);
-                    if (endPos > firstMatchPos) {
-                        buttonSettings.globalStyles[styleName] = yaml.substring(firstMatchPos, endPos).trim();
-                        logMessage(`  - 找到全局样式: ${styleName} (忽略${matches.length - 1}个重复定义)`);
-                    }
-                }
-            }
-            
-            // 首先提取通用的样式引用定义
-            logMessage('开始查找样式引用定义...');
-            const styleIdentifierRegex = /(&\w+)\s*$/gm;
-            const styleIdentifiers = Array.from(yaml.matchAll(styleIdentifierRegex));
-            
-            for (const match of styleIdentifiers) {
-                const styleId = match[1];
-                const styleDefRegex = new RegExp(`[^\\s]+:\\s*${styleId}[\\s\\S]*?(?=\\n\\w+:|$)`, 'i');
-                const styleDefMatch = yaml.match(styleDefRegex);
-                
-                if (styleDefMatch) {
-                    if (!buttonSettings.styleReferences) {
-                        buttonSettings.styleReferences = {};
-                    }
-                    buttonSettings.styleReferences[styleId.substring(1)] = styleDefMatch[0];
-                    logMessage(`  - 找到样式引用: ${styleId}`);
-                }
-            }
-            
-            // 再提取每个按钮的设置
-            for (const button of buttonNames) {
-                // 寻找按钮定义块
-                const buttonRegex = new RegExp(`${button}:\\s*([\\s\\S]*?)(\\n\\w+Button:|$)`, 'i');
-                const buttonMatch = yaml.match(buttonRegex);
-                
-                if (buttonMatch) {
-                    logMessage(`找到按钮: ${button}`);
-                    const buttonDefinition = buttonMatch[1];
-                    
-                    // 提取swipeUpAction和swipeDownAction
-                    buttonSettings[button] = {};
-                    
-                    // 处理swipeUpAction
-                    let upActionIndex = buttonDefinition.indexOf("swipeUpAction:");
-                    if (upActionIndex !== -1) {
-                        let startPos = upActionIndex;
-                        let endPos = findActionEndPosition(buttonDefinition, startPos);
-                        if (endPos > startPos) {
-                            buttonSettings[button].swipeUpAction = buttonDefinition.substring(startPos, endPos).trim();
-                            logMessage(`  - 找到 swipeUpAction`);
-                        }
-                    }
-                    
-                    // 处理swipeDownAction
-                    let downActionIndex = buttonDefinition.indexOf("swipeDownAction:");
-                    if (downActionIndex !== -1) {
-                        let startPos = downActionIndex;
-                        let endPos = findActionEndPosition(buttonDefinition, startPos);
-                        if (endPos > startPos) {
-                            buttonSettings[button].swipeDownAction = buttonDefinition.substring(startPos, endPos).trim();
-                            logMessage(`  - 找到 swipeDownAction`);
-                        }
-                    }
-                    
-                    // 提取滑动提示样式
-                    const upHintStyleRegex = new RegExp(`${button}SwipeUpHintForegroundStyle:[\\s\\S]*?(?=\\n\\w+:)`, 'i');
-                    const downHintStyleRegex = new RegExp(`${button}SwipeDownHintForegroundStyle:[\\s\\S]*?(?=\\n\\w+:)`, 'i');
-                    
-                    const upHintMatch = yaml.match(upHintStyleRegex);
-                    const downHintMatch = yaml.match(downHintStyleRegex);
-                    
-                    if (upHintMatch) {
-                        buttonSettings[button].swipeUpHintStyle = upHintMatch[0];
-                        logMessage(`  - 找到 SwipeUpHintForegroundStyle`);
-                    }
-                    
-                    if (downHintMatch) {
-                        buttonSettings[button].swipeDownHintStyle = downHintMatch[0];
-                        logMessage(`  - 找到 SwipeDownHintForegroundStyle`);
-                    }
-                    
-                    // 提取按钮前景样式 (UpForegroundStyle)
-                    const upForegroundStyleRegex = new RegExp(`${button}UpForegroundStyle:[\\s\\S]*?(?=\\n\\w+:)`, 'i');
-                    const upForegroundMatch = yaml.match(upForegroundStyleRegex);
-                    
-                    if (upForegroundMatch) {
-                        buttonSettings[button].upForegroundStyle = upForegroundMatch[0];
-                        logMessage(`  - 找到 UpForegroundStyle`);
-                    }
-                    
-                    // 提取按钮前景样式 (DownForegroundStyle)
-                    const downForegroundStyleRegex = new RegExp(`${button}DownForegroundStyle:[\\s\\S]*?(?=\\n\\w+:)`, 'i');
-                    const downForegroundMatch = yaml.match(downForegroundStyleRegex);
-                    
-                    if (downForegroundMatch) {
-                        buttonSettings[button].downForegroundStyle = downForegroundMatch[0];
-                        logMessage(`  - 找到 DownForegroundStyle`);
-                    }
-                    
-                    // 提取HoldSymbols样式
-                    const holdSymbolsStyleRegex = new RegExp(`${button}HoldSymbolsStyle:[\\s\\S]*?(?=\\n\\w+Button|$)`, 'i');
-                    const holdSymbolsMatch = yaml.match(holdSymbolsStyleRegex);
-                    
-                    if (holdSymbolsMatch) {
-                        buttonSettings[button].holdSymbolsStyle = holdSymbolsMatch[0];
-                        logMessage(`  - 找到 HoldSymbolsStyle`);
-                        
-                        // 提取每个holdSymbolsForegroundStyle
-                        const holdForegroundRegex = new RegExp(`${button}HoldSymbolsForegroundStyle\\d+:[\\s\\S]*?(?=\\n\\w+:)`, 'gi');
-                        const holdForegroundMatches = Array.from(yaml.matchAll(holdForegroundRegex));
-                        
-                        if (holdForegroundMatches.length > 0) {
-                            buttonSettings[button].holdSymbolsForegroundStyles = [];
-                            for (const match of holdForegroundMatches) {
-                                buttonSettings[button].holdSymbolsForegroundStyles.push(match[0]);
-                            }
-                            logMessage(`  - 找到 ${holdForegroundMatches.length} 个 HoldSymbolsForegroundStyle`);
-                        }
-                    }
-                    
-                    if (!buttonSettings[button].swipeUpAction && 
-                        !buttonSettings[button].swipeDownAction && 
-                        !buttonSettings[button].swipeUpHintStyle && 
-                        !buttonSettings[button].swipeDownHintStyle &&
-                        !buttonSettings[button].holdSymbolsStyle) {
-                        delete buttonSettings[button];
-                        logMessage(`  - 删除没有相关设置的按钮: ${button}`);
-                        continue;
-                    }
-                }
-            }
-            
-            return buttonSettings;
-        }
-
-        // 查找样式定义的结束位置
-        function findStyleEndPosition(text, startPos) {
-            // 从样式名开始
-            let pos = text.indexOf(":", startPos);
-            if (pos === -1) return startPos;
-            
-            pos++; // 移到冒号后面
-            
-            // 找到下一个以字母开头的键的位置
-            const nextKeyMatch = text.substring(pos).match(/\n[a-zA-Z][a-zA-Z0-9]*:/);
-            if (nextKeyMatch) {
-                return pos + nextKeyMatch.index;
-            }
-            
-            // 如果没有找到下一个键，返回剩余的全部文本
-            return text.length;
-        }
-        
-        // 查找action定义的结束位置
-        function findActionEndPosition(text, startPos) {
-            // 从swipeXAction:开始
-            let pos = text.indexOf(":", startPos);
-            if (pos === -1) return startPos;
-            
-            pos++; // 移到冒号后面
-            
-            // 跳过空白字符
-            while (pos < text.length && /\s/.test(text[pos])) {
-                pos++;
-            }
-            
-            // 如果是大括号开始的对象
-            if (text[pos] === '{') {
-                let braceCount = 1;
-                pos++; // 移到左大括号后
-                
-                // 寻找匹配的右大括号
-                while (pos < text.length && braceCount > 0) {
-                    if (text[pos] === '{') {
-                        braceCount++;
-                    } else if (text[pos] === '}') {
-                        braceCount--;
-                    }
-                    pos++;
-                }
-                
-                // 找到换行符作为这行的结束
-                while (pos < text.length && text[pos] !== '\n') {
-                    pos++;
-                }
-                
-                return pos;
-            }
-            
-            // 如果不是对象而是简单值
-            let endPos = text.indexOf('\n', pos);
-            return endPos === -1 ? text.length : endPos;
-        }
-        
-        // 检查目标皮肤中的样式引用
-        function checkStyleReferences(yaml) {
-            const styleRefs = {};
-            
-            // 查找常见的样式引用
-            const styleRefRegex = /\*(\w+)/g;
-            const matches = Array.from(yaml.matchAll(styleRefRegex));
-            
-            for (const match of matches) {
-                styleRefs[match[1]] = true;
-            }
-            
-            return styleRefs;
-        }
-        
-        // 更新目标YAML
-        function updateTargetYaml(yaml, buttonSettings, styleReferences) {
-            let updatedYaml = yaml;
-            
-            logMessage('开始更新目标YAML...');
-            
-            // 首先检查目标YAML中是否存在已知会导致重复的键
-            const knownProblematicKeys = ['cnenButtonForeground1', 'ButtonSwipeUpHintForeground'];
-            
-            for (const key of knownProblematicKeys) {
-                // 查找所有匹配项位置
-                const regex = new RegExp(`^${key}:`, 'gm');
-                const matches = [...updatedYaml.matchAll(regex)];
-                
-                if (matches.length > 1) {
-                    logMessage(`  - 检测到重复键 ${key} (${matches.length}个)`);
-                    
-                    // 从后向前删除重复的定义，保留第一个
-                    for (let i = matches.length - 1; i > 0; i--) {
-                        const startPos = matches[i].index;
-                        // 寻找定义结束的位置（下一个键开始的位置）
-                        const nextKey = updatedYaml.substring(startPos).match(/\n[a-zA-Z][a-zA-Z0-9_]*:/);
-                        const endPos = nextKey ? startPos + nextKey.index : updatedYaml.length;
-                        
-                        // 从YAML中移除重复定义
-                        updatedYaml = updatedYaml.substring(0, startPos) + updatedYaml.substring(endPos);
-                        logMessage(`  - 移除重复的 ${key} 定义`);
-                    }
-                }
-            }
-            
-            // 首先添加样式引用定义
-            if (buttonSettings.styleReferences) {
-                logMessage('处理样式引用定义...');
-                for (const [styleId, styleDef] of Object.entries(buttonSettings.styleReferences)) {
-                    // 检查目标YAML中是否已存在该样式引用
-                    const styleRegex = new RegExp(`[^\\s]+:\\s*&${styleId}\\s`, 'i');
-                    const styleExists = styleRegex.test(updatedYaml);
-                    
-                    if (!styleExists) {
-                        // 添加到YAML文件的开始部分
-                        updatedYaml = styleDef + '\n\n' + updatedYaml;
-                        logMessage(`  - 添加样式引用: ${styleId}`);
-                    } else {
-                        logMessage(`  - 样式引用已存在: ${styleId}`);
-                    }
-                }
-            }
-            
-            // 处理全局样式，确保不会重复添加
-            if (buttonSettings.globalStyles) {
-                logMessage('处理全局样式...');
-                for (const [styleName, styleContent] of Object.entries(buttonSettings.globalStyles)) {
-                    // 检查目标YAML中是否已存在该样式
-                    const styleNameEscaped = styleName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-                    const styleKeyRegex = new RegExp(`^${styleNameEscaped}:`, 'gm');
-                    const matches = [...updatedYaml.matchAll(styleKeyRegex)];
-                    
-                    if (matches.length > 0) {
-                        // 如果已经存在，更新第一个定义，删除其余定义
-                        if (matches.length > 1) {
-                            logMessage(`  - 检测到重复的全局样式: ${styleName} (${matches.length}个)`);
-                            // 从后向前删除重复的定义，保留第一个
-                            for (let i = matches.length - 1; i > 0; i--) {
-                                const startPos = matches[i].index;
-                                const nextKey = updatedYaml.substring(startPos).match(/\n[a-zA-Z][a-zA-Z0-9_]*:/);
-                                const endPos = nextKey ? startPos + nextKey.index : updatedYaml.length;
-                                updatedYaml = updatedYaml.substring(0, startPos) + updatedYaml.substring(endPos);
-                                logMessage(`  - 移除重复的 ${styleName} 定义`);
-                            }
-                        }
-                        
-                        // 更新第一个匹配项
-                        const startPos = matches[0].index;
-                        const nextKey = updatedYaml.substring(startPos).match(/\n[a-zA-Z][a-zA-Z0-9_]*:/);
-                        const endPos = nextKey ? startPos + nextKey.index : updatedYaml.length;
-                        updatedYaml = updatedYaml.substring(0, startPos) + styleContent + 
-                                      updatedYaml.substring(endPos);
-                        logMessage(`  - 更新全局样式: ${styleName}`);
-                    } else {
-                        // 不存在，添加到YAML开头
-                        updatedYaml = styleContent + '\n\n' + updatedYaml;
-                        logMessage(`  - 添加全局样式: ${styleName}`);
-                    }
-                }
-            }
-            
-            for (const [button, settings] of Object.entries(buttonSettings)) {
-                if (button === 'styleReferences' || button === 'globalStyles') continue;
-                
-                logMessage(`处理按钮: ${button}`);
-                
-                // 更新swipeUpAction和swipeDownAction
-                if (settings.swipeUpAction) {
-                    const escapedSwipeUpAction = settings.swipeUpAction.replace(/`/g, '\`');
-                    const swipeUpRegex = new RegExp(`(${button}:[\\s\\S]*?)swipeUpAction:.*?\\n`, 'i');
-                    const hasSwipeUp = swipeUpRegex.test(updatedYaml);
-                    
-                    if (hasSwipeUp) {
-                        updatedYaml = updatedYaml.replace(swipeUpRegex, `$1${escapedSwipeUpAction}\n`);
-                        logMessage(`  - 更新 swipeUpAction`);
-                    } else {
-                        const buttonEndRegex = new RegExp(`(${button}:[\\s\\S]*?)(\\n\\w+:)`, 'i');
-                        updatedYaml = updatedYaml.replace(buttonEndRegex, `$1  ${escapedSwipeUpAction}\n$2`);
-                        logMessage(`  - 添加 swipeUpAction`);
-                    }
-                }
-                
-                if (settings.swipeDownAction) {
-                    const escapedSwipeDownAction = settings.swipeDownAction.replace(/`/g, '\\`');
-                    const swipeDownRegex = new RegExp(`(${button}:[\\s\\S]*?)swipeDownAction:.*?\\n`, 'i');
-                    const hasSwipeDown = swipeDownRegex.test(updatedYaml);
-                    
-                    if (hasSwipeDown) {
-                        updatedYaml = updatedYaml.replace(swipeDownRegex, `$1${escapedSwipeDownAction}\n`);
-                        logMessage(`  - 更新 swipeDownAction`);
-                    } else {
-                        const buttonEndRegex = new RegExp(`(${button}:[\\s\\S]*?)(\\n\\w+:)`, 'i');
-                        updatedYaml = updatedYaml.replace(buttonEndRegex, `$1  ${escapedSwipeDownAction}\n$2`);
-                        logMessage(`  - 添加 swipeDownAction`);
-                    }
-                }
-                
-                // 通用函数：处理样式并确保不会重复
-                function processStyleSafely(styleContent, styleType) {
-                    if (!styleContent) return;
-                    
-                    // 处理样式引用
-                    const styleRefMatch = styleContent.match(/<<:\s*\*(\w+)/);
-                    if (styleRefMatch) {
-                        const styleId = styleRefMatch[1];
-                        // 检查引用的样式定义是否存在
-                        if (buttonSettings.styleReferences && buttonSettings.styleReferences[styleId]) {
-                            const styleDef = buttonSettings.styleReferences[styleId];
-                            const styleDefRegex = new RegExp(`[^\\s]+:\\s*&${styleId}\\s`, 'i');
-                            if (!styleDefRegex.test(updatedYaml)) {
-                                // 添加引用的样式定义
-                                updatedYaml = styleDef + '\n\n' + updatedYaml;
-                                logMessage(`  - 添加样式定义: ${styleId}`);
-                            }
-                        }
-                    }
-                    
-                    // 获取样式名并转义特殊字符
-                    const styleName = styleContent.split(':')[0];
-                    const styleNameEscaped = styleName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-                    
-                    // 检查是否存在重复定义
-                    const styleKeyRegex = new RegExp(`^${styleNameEscaped}:`, 'gm');
-                    const matches = [...updatedYaml.matchAll(styleKeyRegex)];
-                    
-                    if (matches.length > 0) {
-                        // 如果已经存在，先清理重复项
-                        if (matches.length > 1) {
-                            logMessage(`  - 检测到重复的 ${styleName} 定义 (${matches.length}个)`);
-                            // 从后向前删除重复的定义，保留第一个
-                            for (let i = matches.length - 1; i > 0; i--) {
-                                const startPos = matches[i].index;
-                                const nextKey = updatedYaml.substring(startPos).match(/\n[a-zA-Z][a-zA-Z0-9_]*:/);
-                                const endPos = nextKey ? startPos + nextKey.index : updatedYaml.length;
-                                updatedYaml = updatedYaml.substring(0, startPos) + updatedYaml.substring(endPos);
-                                logMessage(`  - 移除重复的 ${styleName} 定义`);
-                            }
-                        }
-                        
-                        // 更新第一个匹配项
-                        const startPos = matches[0].index;
-                        const nextKey = updatedYaml.substring(startPos).match(/\n[a-zA-Z][a-zA-Z0-9_]*:/);
-                        const endPos = nextKey ? startPos + nextKey.index : updatedYaml.length;
-                        updatedYaml = updatedYaml.substring(0, startPos) + styleContent + 
-                                      updatedYaml.substring(endPos);
-                        logMessage(`  - 更新 ${styleType}: ${styleName}`);
-                    } else {
-                        // 不存在，添加新的样式
-                        const buttonStyleInsertPoint = findStyleInsertPoint(updatedYaml, button);
-                        if (buttonStyleInsertPoint !== -1) {
-                            updatedYaml = updatedYaml.substring(0, buttonStyleInsertPoint) + 
-                                        `\n${styleContent}\n` + 
-                                        updatedYaml.substring(buttonStyleInsertPoint);
-                            logMessage(`  - 添加 ${styleType}: ${styleName}`);
-                        }
-                    }
-                }
-                
-                // 处理所有样式类型
-                if (settings.upForegroundStyle) {
-                    processStyleSafely(settings.upForegroundStyle, 'UpForegroundStyle');
-                }
-                
-                if (settings.downForegroundStyle) {
-                    processStyleSafely(settings.downForegroundStyle, 'DownForegroundStyle');
-                }
-                
-                if (settings.swipeUpHintStyle) {
-                    processStyleSafely(settings.swipeUpHintStyle, 'SwipeUpHintForegroundStyle');
-                }
-                
-                if (settings.swipeDownHintStyle) {
-                    processStyleSafely(settings.swipeDownHintStyle, 'SwipeDownHintForegroundStyle');
-                }
-                
-                if (settings.holdSymbolsStyle) {
-                    processStyleSafely(settings.holdSymbolsStyle, 'HoldSymbolsStyle');
-                }
-                
-                // 处理HoldSymbolsForegroundStyle
-                if (settings.holdSymbolsForegroundStyles && settings.holdSymbolsForegroundStyles.length > 0) {
-                    logMessage(`  - 处理 ${settings.holdSymbolsForegroundStyles.length} 个 HoldSymbolsForegroundStyle`);
-                    for (const styleContent of settings.holdSymbolsForegroundStyles) {
-                        processStyleSafely(styleContent, 'HoldSymbolsForegroundStyle');
-                    }
-                }
-            }
-            
-            logMessage('YAML更新完成');
-            return updatedYaml;
-        }
-        
-        // 找到样式插入点
-        function findStyleInsertPoint(yaml, button) {
-            // 寻找按钮样式的最佳插入点
-            const nextButtonRegex = new RegExp(`\\n(\\w+Button:)`, 'g');
-            let match;
-            let lastIndex = -1;
-            
-            // 找到当前按钮定义的位置
-            const buttonRegex = new RegExp(`\\n${button}:`, 'i');
-            const buttonMatch = buttonRegex.exec(yaml);
-            
-            if (!buttonMatch) {
-                return -1;
-            }
-            
-            // 从按钮定义开始搜索下一个按钮定义
-            nextButtonRegex.lastIndex = buttonMatch.index + buttonMatch[0].length;
-            
-            match = nextButtonRegex.exec(yaml);
-            if (match) {
-                return match.index;
-            }
-            
-            // 如果没有找到下一个按钮，返回文件末尾
-            return yaml.length;
-        }
     </script>
 </body>
 </html>
